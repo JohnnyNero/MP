@@ -1,152 +1,369 @@
-# Reapproach: a Jumanji/Zathura-style game, informed by MP4's architecture
+# Game design proposal (v2)
 
 Working title: **TABLETOP** (placeholder).
 
-Premise: players sit around a cursed board game *inside a physical space* (a
-house, a cabin, a spaceship). Every turn on the board unleashes something into
-that space — floods, vines, a meteor shower, a gravity flip, a stampede. The
-space stays changed. You win by finishing the board before the house finishes you.
+A local, competitive party game for 2–4 players in the browser. Players race
+along a cursed board game while the board unleashes effects into the house
+they are physically in. The house is a 2D side-cutaway diorama. Each round
+ends with a Mario Party-style minigame, played inside the house as it
+currently stands. First to the end of the board wins. If the house falls
+apart first, **everyone loses**.
 
-The analysis in `mp4-cleanroom-analysis.md` shows MP4 already solved most of
-the *structural* problems this needs. It only lacks the second half: the
-physical space players live in. Below is what we borrow, what we invert, and
-a concrete structure.
+Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
+
+> **How to read this doc.** Section 1 records decisions you've made.
+> Anything marked **(proposal)** is my suggestion and needs your sign-off.
+> Anything marked **(tune)** is a number we deliberately won't decide until
+> playtesting. Section 13 lists what's still open.
 
 ---
 
-## 1. The core idea: two coupled graphs
+## 1. Locked decisions
 
-MP4 has one graph (the board) and puts its "world" (vehicles, water, bridges)
-*on* that graph. We split it:
-
-```
- BOARD (abstract track on the table)        ROOM (the physical space)
- ┌───────────────────────────────┐          ┌─────────────────────────────┐
- │ spaces, links, types, flags   │──effects▶│ zones, connections, hazards │
- │ player pieces                 │◀─effects─│ player avatars, the board   │
- └───────────────────────────────┘          └─────────────────────────────┘
-```
-
-- **Board → Room.** Landing/passing spaces draws an *encounter card*. The card
-  spawns a persistent **Room Effect**: water rises in the kitchen, vines block
-  the hallway, the living room loses gravity.
-- **Room → Board.** Room state changes the board. Directly: the flood
-  washes your piece back 3 spaces. Indirectly: you can't roll unless your
-  avatar is physically at the board.
-
-**Signature mechanic (Zathura's best trick): the board is a physical object
-in the room.** To take your turn your avatar must reach it and touch it. Room
-effects can move it, block it, or carry it off (the board floats in zero-G,
-gets swept down the hall by flood water). This one rule turns every room
-change into a board-game consequence. That's the Jumanji feel.
-
-## 2. What we lift from MP4, mapped
-
-| MP4 pattern | In our game |
+| Topic | Decision |
 |---|---|
-| Space graph with types + engine flags + per-board flag params | Same for the board. The **room** is also a graph: zones (rooms/areas) with tags (`wet`, `dark`, `overgrown`, `zero_g`) and connections (door, stairs, vent) that can be open/blocked |
-| Walk / land / mini hooks returning "handled = free step" | `on_pass`, `on_land`, plus `on_zone_enter` for the room. Pass an explicit context, not globals |
-| Toggle "event-only" flags / junction mask / re-type spaces | Effects that **lock board paths** and **block room connections**: one primitive for both graphs |
-| Region tags + area-of-effect (volcano zone) | Room zone tags: "everyone in a `wet` zone takes the eel attack" |
-| Player-state gating (mini/mega/suit) | Avatar conditions: shrunk (fits through vents, short dice), stuck (Jumanji floor), frozen, floating |
-| Tiny persistent save + **re-derive world on load** | `WorldState = ordered list of active effects + counters`. The room and board are *rebuilt* from it. Save/load, netcode and the reversal ending all come almost for free |
-| One-shot pre/post-turn hooks for countdowns | Timed effects ("monsoon: 3 turns") count down on the owner's turn, then expire and re-derive |
-| Escalating counters with visible state (lock, hotel tiers) | **House Integrity / Doom meter**: each unresolved effect adds pressure; thresholds unlock nastier card decks and visible decay |
-| Last-5-turns global rule change | Endgame "the game notices you're winning" twist: the final stretch of the board rewrites space types |
-| Board ↔ minigame scene round-trip with resume flags | **We don't leave the scene.** The "minigame" is a real-time phase that happens *in the room itself* (see §3) |
-| Coroutine cutscene template (enter, frame, talk, mutate, restore) | Every encounter card is a coroutine script with the same beats, so cards are cheap to author |
-| CPU = synthesized controller input | Same for bots on the board *and* in the room; bots and humans share all code paths |
-| Bounded DFS pathfinding over segments | Fine for the board. Room bots use navmesh pathing that respects blocked connections |
+| Platform | Web (browser) |
+| Stack | TypeScript + Phaser |
+| Play | Local, shared screen |
+| Input | Gamepads primary (browser Gamepad API, up to 4); keyboard fallback |
+| Players | 2–4; CPU bots fill empty seats from day one |
+| Mode | Competitive race, with a shared loss condition (doom meter) |
+| Win | First piece to reach the board's final space |
+| Shared loss | Doom meter fills, so all players lose. Always visible |
+| Length | 30–45 min, about 10–12 rounds |
+| View | 2D side cutaway (dollhouse cross-section), pixel art |
+| House | Medium: about 9 rooms over 3 floors; one house for v1 |
+| Avatar movement | Platformer: run, jump, gravity, stairs/ladders |
+| Board as prop | The board is a physical object in the house. Every round starts with everyone walking back to it, and minigame goals can use it |
+| Turn order | Set by arrival order at the board during the regroup walk |
+| Card trigger | Only dedicated **danger spaces** draw effect cards |
+| Which card plays | Roulette picks one of this round's drawn cards. The others are **discarded** |
+| No card drawn | Generic minigame in the house as it currently stands |
+| Minigame form | **Hazard × goal mix**: the card supplies the hazard, and a goal (survive, collect, hold the flag…) is drawn separately |
+| Minigame teams | MP-style formats (4-player FFA / 1v3 / 2v2), decided by the space each player landed on |
+| Minigame reward | Currency (coins) |
+| Effect targeting | Some cards name their room or area; others pick a random room |
+| Effect persistence | Stays until paid off (repair) or **contained** by a good group result. Auto-expiry after X rounds is deferred until playtesting |
+| Doom sources | Poor group minigame performance **and** lingering effects |
+| Coin sinks | Items, house repair, minigame perks, toll gates and shortcuts |
+| Agency | Mainly from winning minigames, which earns coins to spend |
 
-## 3. Core loop
+---
+
+## 2. The round
 
 ```
-┌──────────────── ROUND ────────────────────────────────────────┐
-│ 1. REACH   active player's avatar must get to the board        │ real-time
-│            (others can help or, in versus mode, hinder)        │
-│ 2. ROLL    dice → move piece on BOARD (junction choices)       │ turn-based
-│ 3. CARD    land/pass triggers an encounter → Room Effect       │ cutscene
-│ 4. SURVIVE everyone acts in real time for ~20–60s while the    │ real-time
-│            effect manifests (MP4's "minigame", but in-world)   │
-│ 5. SETTLE  result writes back: piece moves, effect resolved/   │ turn-based
-│            persists, doom meter ticks, board paths lock/open   │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────── ROUND n ───────────────────────────────┐
+│ 1. REGROUP  (real-time, house)                                   │
+│    Everyone walks/jumps back to the board from wherever the last │
+│    minigame left them. Arrival order = turn order this round.    │
+│                                                                  │
+│ 2. BOARD TURNS  (turn-based, at the board, in arrival order)     │
+│    roll → move piece → resolve space (coins, shop, toll, danger) │
+│    Danger space → draw an effect card into this round's pool.    │
+│                                                                  │
+│ 3. HOUSE TURN  (cutscene)                                        │
+│    pool empty   → generic minigame                               │
+│    pool ≥1 card → roulette picks one card; the rest are discarded│
+│    picked card's hazard lands in its room (named or random)      │
+│    goal drawn; format (FFA/1v3/2v2) from landed-space colours    │
+│                                                                  │
+│ 4. MINIGAME  (real-time, house, ~30–60s (tune))                  │
+│    hazard + goal + every lingering effect already in the house   │
+│                                                                  │
+│ 5. SETTLE                                                        │
+│    coins paid by placement                                       │
+│    group score ≥ containment bar → new effect contained (gone)   │
+│    otherwise it lingers                                          │
+│    doom += f(group score, lingering effects)                     │
+│    doom full → everyone loses                                    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-Phase 4 replaces MP4's minigames, and it is the main departure. In MP4 a
-minigame is a separate disposable scene. Here the challenge happens in the
-room you already live in, which is shaped by every earlier card. So it is
-never the same twice, and you get emergent combinations: vines + flood means
-the vines float and block the stairs.
+**Pacing check (proposal):** at 30–45 minutes over 10–12 rounds, a round
+lasts about 3–4 minutes. A rough budget:
+- regroup: 15–20 s
+- board turns: about 4 × 25 s
+- house-turn cutscene: 15 s
+- minigame: 45 s
+- settle: 15 s
 
-### Win / lose
-- **Win:** any piece reaches the final space → **everything reverses**
-  (Jumanji ending). Since the world is re-derived from the effect list, the
-  reversal is just "clear the list and rebuild", which can play as a
-  satisfying rewind animation.
-- **Lose:** Doom meter maxes (house collapses / ship breaks up / you all get
-  absorbed into the game).
-- Recommended default mode is **co-op race against the house**; competitive
-  (first to finish escapes, others stay trapped) is the alternative.
+This budget is the main constraint on how long every animation is allowed to run.
 
-## 4. Data model (our own, engine-agnostic sketch)
+---
 
-```text
-BoardSpace   { id, pos, type, tags[], links[], params{} }
-RoomZone     { id, bounds, tags[], connections[] }
-Connection   { from, to, kind(door|stairs|vent|hole), open: bool, requires: condition? }
-Effect       { id, card_id, owner, zones[], started_turn, duration?, stacks, params{} }
-WorldState   { seed, turn, doom, active_effects[], board_pieces{}, avatars{}, board_object_zone }
+## 3. The board
 
-derive(WorldState) -> (effective board graph, effective room graph, prop/visual states)
-```
+A directed space graph, MP4-style: spaces with a type, tags and outgoing
+links, plus forks.
 
-Rules that keep it sane (lessons from MP4):
-1. **Only `WorldState` is truth.** Graph edits are derived, never saved.
-2. **Effects are data + one script.** Card = `{ trigger, targets, derive_rules,
-   realtime_script, resolve_rules }`. Designers add cards without engine work.
-3. **Explicit context to every hook** (`ctx.player`, `ctx.space`, `ctx.world`)
-   instead of globals.
-4. **Seeded, separate RNG streams** (`board`, `cards`, `realtime`, `cosmetic`)
-   so games can be replayed and bugs reproduced, which MP4 can't do.
-5. **Generic hook registry**, not "if board == X" in the engine.
+**Space types**
 
-## 5. Starter content (to prove the loop)
-
-One space (a two-floor house, ~8 zones) and ~12 cards that exercise every
-coupling type:
-
-| Card | Room effect | Board coupling |
+| Type | Status | Effect |
 |---|---|---|
-| Monsoon | Ground floor zones become `wet`; water level rises each turn | Board pieces on "low" spaces slide back 2; board object floats if its zone floods |
-| Overgrowth | Vines block 1–2 connections until cut (real-time task) | Locks a board shortcut while vines live |
-| Stampede | Herd crosses a zone route; avatars in path are knocked to another zone | Pieces get shuffled like MP4's Bowser shuffle |
-| Gravity Well | One zone becomes `zero_g` | Dice in that zone roll double but you can't steer at junctions |
-| Shrink Ray | Hit avatars become small (vents usable) | Small pieces use pipe-only board links (straight from MP4's mini gating) |
-| Quicksand Floor | Avatar `stuck` until freed by another player | Their piece can't move; teammates' rolls can carry it |
-| Meteor | Random zone gets a hole → new vertical connection | Re-types one board space to "hazard" |
-| Robot Sentinel | Patrolling enemy guards the board object | Must be distracted before rolling |
-| Monkey Thieves | Steal items from avatars in `dark` zones | Steal board items |
-| Time Skip | Next card resolves twice | — |
-| Fire | Spreads to adjacent `dry` zones each turn unless doused | Doom +1 per burning zone |
-| Endgame: The Game Notices | Final stretch: all neutral spaces become card spaces | MP4 last-5 analogue |
+| Danger | locked | Draws an effect card into the round's pool |
+| Blue (+coins) / Red (−coins) | proposal | MP4's coin spaces. Also gives each player a "colour" for picking the minigame format (see §5.3) |
+| Shop | proposal | Buy items |
+| Repair | proposal | Pay to clear a lingering effect or reduce doom. Or should repair happen anywhere, at any time? (open, §13) |
+| Toll gate | locked as a sink | Pay to pass, or take the long way |
+| Shortcut | locked as a sink | Pay to open a faster branch |
+| Final space | locked | Reaching it wins |
 
-Stacking is the fun part: Fire + Monsoon cancel, Overgrowth + Fire spreads
-faster, Gravity Well + Monsoon gives floating water blobs.
+**Movement (proposal):** one standard d6 per turn. Items change dice. Passing
+a shop or toll triggers its event during movement (MP4's "passing" hook);
+landing resolves the space.
 
-## 6. Build order
+**Finish rule:** does a player need an exact roll to land on the final space,
+or is passing it enough? (open, §13)
 
-1. **Headless rules core:** board graph, room graph, WorldState, `derive()`,
-   card pipeline, seeded RNG. Unit-testable, no graphics. Play a whole game in text.
-2. **Turn flow as coroutines:** reach → roll → card → survive (stubbed) → settle.
-3. **Greybox room:** 8 zones, avatars, the board as a carryable object, 3 cards.
-4. Real-time phase for those 3 cards, then bots via synthesized input.
-5. Content pass, doom meter, reversal ending.
+**Length:** tune the path length and forks so a typical game ends in 10–12
+rounds.
 
-## Open questions for you
+---
 
-- Engine/platform? (Godot / Unity / Unreal / web.) It decides whether
-  "coroutines" are GDScript `await`, C# `IEnumerator`, or JS async.
-- Local couch play (as in the films) or online?
-- Co-op vs competitive as the default?
-- First-person avatars in the room, or a third-person/diorama camera (closer to MP4)?
+## 4. The house
+
+- **Layout:** a side cutaway with 3 floors and about 9 rooms, connected by
+  doors, stairs/ladders and maybe vents (open, §13).
+- **The board** sits on a table in one room. Where that room is decides how
+  long the regroup walk takes from each part of the house. Can effects move
+  the board? (open, §13)
+- **Room tags** carry state, e.g. `wet`, `dark`, `overgrown`, `burning`,
+  `zero_g`. Lingering effects set tags, and both minigames and the regroup
+  walk read them.
+- **Connections** can be blocked (vines on the stairs, a collapsed floor).
+  A blocked connection reshapes routes for the regroup walk and for minigames.
+
+The house is a **platformer level that changes over the whole game**. Every
+lingering effect makes it a little more hostile, which is the Jumanji feel,
+and it is also why repair spending matters.
+
+---
+
+## 5. Effects and minigames
+
+### 5.1 Effect cards (hazards)
+
+Each card defines:
+- a **hazard**: what physically happens during the minigame
+- **targeting**: either a named room or area, or "random room"
+- a **lingering state**: the tags or blocked connections it leaves behind if
+  it isn't contained
+- a **doom weight**: how much pressure it adds each round while it lingers
+- **compatible goals** (optional): goals this hazard shouldn't be paired with.
+  This reduces dud combinations in the hazard × goal mix
+
+**Proposed starter hazards (mixed themes, proposal):**
+
+| Hazard | Targeting | Minigame behaviour | If it lingers |
+|---|---|---|---|
+| Flood | Ground floor | Water rises, slows movement, eventually drowns | Ground floor `wet` (slippery) |
+| Meteor shower | Top floor | Telegraphed impacts; a hit means stun | A hole in the floor: new drop connection |
+| Vine growth | Random room | Vines spread and entangle | Blocks one connection |
+| Stampede | Random floor | A herd runs across the floor; knockback | Furniture debris on the floor |
+| Blackout | Random room | Vision radius only | Room `dark` |
+| Gravity flip | Random room | Gravity inverts inside the room | Room `zero_g` |
+| Fire | Random room | Spreads to neighbours | Room `burning`: spreads each round unless repaired |
+| Monkey thieves | Random room | Monkeys steal coins from players they touch | Monkeys stay and steal from anyone who passes through during the regroup walk |
+
+### 5.2 Goals
+
+**Proposed starter goals (proposal):**
+
+| Goal | Scoring |
+|---|---|
+| Survive | Last standing, or least time stunned |
+| Collect | Most items caught (apples, coins, gems) |
+| King of the hill | Most time holding a zone or the flag |
+| Race | First to reach a target (e.g. the board itself) |
+| Hot potato | Don't be holding the thing when the timer ends |
+| Tag | 1v3 friendly: "it" vs the rest |
+
+**Combining them:** a goal is drawn at random, and incompatible pairings are
+filtered out. Every goal must work with every format (FFA, 1v3, 2v2), or say
+which formats it supports.
+
+### 5.3 Format (FFA / 1v3 / 2v2)
+
+MP4 uses the colour of the space each player landed on. **Proposal:**
+- blue = team A, red = team B
+- danger, shop and other spaces are "neutral" and get filled in randomly,
+  weighted toward balance
+- the result is 4 matching → FFA, 3+1 → 1v3, 2+2 → 2v2
+- with 2 or 3 players: always FFA, or a 1v2 format for 3 players? (open, §13)
+
+### 5.4 Containment and the group score
+
+Each minigame produces:
+- an **individual placement**, which pays coins
+- a **group score**, e.g. total apples caught or total survivors, normalized 0–1
+
+If the group score clears the card's **containment bar** (tune), the effect
+disappears instead of lingering. This is the shared-stake beat inside a
+competitive game: sabotaging a rival can also sink the group score.
+
+---
+
+## 6. Economy (coins)
+
+**Sources (proposal):**
+- minigame placement payout (main source)
+- blue spaces
+- small bonuses, e.g. first to arrive at the regroup
+
+**Sinks (locked list; specifics proposed):**
+
+| Sink | Examples (proposal) |
+|---|---|
+| Items | Double die; reroll; "steer the roulette" (re-spin once); push a rival's piece back 2; shield from one effect |
+| Repair | Clear one lingering effect; lower doom by N |
+| Minigame perks | Buy a head start, a better spawn point, or a one-use tool for the next minigame |
+| Tolls / shortcuts | Pay to pass a gate; pay to open a shortcut branch |
+
+**Core tension:** repair is a public good. Every coin spent on repair is a
+coin not spent getting ahead. If nobody repairs, everyone loses. That
+tragedy-of-the-commons pull is the heart of the competitive-but-shared design.
+
+---
+
+## 7. Doom meter
+
+- Always on screen, and a full meter means everyone loses.
+- **Each round:** doom goes up by the sum of the doom weights of lingering
+  effects, plus a penalty when the group score is poor (both tune).
+- **Goes down:** through repair (coins) and containment (a good group score
+  stops an effect from adding doom in future rounds).
+- **Visible feedback in the house as it climbs (proposal):** cracks, light
+  flicker, background shake. Purely cosmetic and driven by the doom value.
+
+---
+
+## 8. CPU bots
+
+Bots ship from day one, following MP4's pattern:
+- **Bots produce virtual controller input.** The board, the regroup walk and
+  every minigame run the same code for bots and humans.
+- **Difficulty** is a mistake chance plus reaction delay (tune).
+- **Board decisions** at forks, shops, tolls and repair use simple scored
+  heuristics, e.g. "path length to finish versus coins". Repair behaviour
+  needs a rule. Proposal: bots repair when doom is above a threshold, more
+  readily at higher difficulty.
+- **Minigames:** each goal type ships with a bot behaviour, so a new goal
+  isn't done until its bot works. Hazards only need avoidance hints (danger
+  zones for bots to steer around).
+
+---
+
+## 9. Win / lose
+
+- **Win:** first piece onto the final space. The house "reverses" for the
+  winner. (Ending cinematic: the world rebuilds from an empty effect list and
+  rewinds.)
+- **Lose (everyone):** the doom meter fills.
+- **Round cap:** none decided. What if nobody finishes but doom never fills?
+  Proposal: a hard cap where the house wins. (open, §13)
+
+---
+
+## 10. Architecture (TypeScript + Phaser)
+
+```
+src/
+  core/          pure TS, no Phaser: rules, deterministic, unit-tested
+    state.ts       GameState: seed, round, doom, players, board, house, active effects
+    board.ts       space graph, movement, junctions, space resolution
+    house.ts       rooms, tags, connections; derive(house, effects)
+    effects.ts     effect cards: data plus pure apply/derive rules
+    goals.ts       goal definitions and scoring
+    format.ts      FFA/1v3/2v2 assignment
+    economy.ts     payouts, shop, repair, tolls
+    doom.ts
+    rng.ts         seeded, named streams: board, cards, minigame, cosmetic
+    flow.ts        round state machine (regroup → turns → house → minigame → settle)
+  input/         Gamepad API + keyboard → per-seat virtual controller
+  bots/          virtual-controller producers (board AI, per-goal minigame AI)
+  game/          Phaser scenes
+    HouseScene      one scene for the house: regroup, minigames and the board prop
+    BoardOverlay    board UI and piece movement, drawn over the house
+    HudScene        doom meter, coins, turn order
+  content/       data: house layout, board layout, cards, goals, items
+```
+
+**Rules carried over from the MP4 analysis:**
+1. **Only `GameState` is the truth.** The house's effective layout (tags,
+   blocked connections) is rebuilt from the base layout plus the active
+   effects, never edited in place. This makes save/load, debugging and the
+   "reverse" ending simple.
+2. **Flow as async scripts** (MP4's coroutines). Each cutscene, board turn and
+   event is an `async` function, e.g. "move camera, wait, show dialog, wait,
+   apply effect".
+3. **Hooks get an explicit context** (`ctx.player`, `ctx.space`,
+   `ctx.state`), not globals.
+4. **Separate seeded RNG streams**, so a game can be replayed from its seed
+   and an input log, unlike MP4.
+5. **Virtual controllers for everyone**, so bots and humans share the same code.
+6. **Minigames don't edit the board.** They return results (placements and a
+   group score), and settle applies them, as MP4's results screen does.
+
+---
+
+## 11. What we take from MP4 (summary)
+
+| MP4 | Here |
+|---|---|
+| Space graph with types, flags and pass/land hooks | Board, as is |
+| End-of-round minigame, format from space colours | Kept, but played **in the house** with the round's hazard |
+| Results written back to persistent state | Settle step |
+| Board gimmicks that change the world (water level, bridges, global last-5 retype) | Effect cards: lingering tags and blocked connections in the house |
+| Rebuild the world from a small save | `derive()` from GameState |
+| Coroutine cutscenes in five beats | async scripts |
+| CPU uses synthesized input | Virtual controllers |
+| Item and shop economy | Coins with four sinks, including the shared repair sink |
+
+---
+
+## 12. v1 scope and build order (proposal)
+
+v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
+
+1. **Core rules, headless:** GameState, the board graph, the house plus
+   `derive`, the flow state machine, RNG, economy, doom. Simulate full games
+   with bot stubs in tests and check that games run about 10–12 rounds.
+2. **Input layer:** gamepads, keyboard and virtual controllers; a seat-join screen.
+3. **House greybox in Phaser:** 3 floors, about 9 rooms, platformer movement,
+   the regroup walk, the board prop.
+4. **First minigame end to end:** one hazard (Flood) and one goal (Collect),
+   FFA only, with settle and doom. **First playable.**
+5. Board overlay and turn UI, shops, tolls and repair.
+6. Formats (1v3, 2v2), the remaining goals and hazards, and bot behaviour per goal.
+7. Pixel-art pass, the roulette and cutscenes, the ending.
+
+---
+
+## 13. Open questions
+
+**Rules**
+1. **Finish:** exact roll to land on the final space, or is passing it enough?
+2. **Round cap:** a hard cap where the house wins, or none?
+3. **Repair:** only on Repair spaces, at the board on your turn, or anytime?
+4. **Formats with 2–3 players:** always FFA, or a 1v2 format for 3 players?
+5. **Regroup ties and stragglers:** a time limit on the walk? What happens to
+   someone stuck behind a blocked route?
+6. **The board prop:** can effects move it, block it or damage it?
+7. **Doom hit from a minigame:** scaled smoothly with the group score, or only
+   below a threshold?
+8. **Coins and stars:** are coins the only currency, or is there a second
+   score (e.g. stars) for tiebreaks?
+
+**Content**
+
+9. **House connections:** stairs and ladders only, or vents and holes too?
+10. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
+    swap?
+11. **Theme of the first house:** the cards mix themes, but is the house
+    itself a normal suburban home, a mansion, or something else?
+
+**Presentation**
+
+12. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
+    and sprite scale.
