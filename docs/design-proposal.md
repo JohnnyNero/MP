@@ -1,4 +1,4 @@
-# Game design proposal (v2)
+# Game design proposal (v3)
 
 Working title: **TABLETOP** (placeholder).
 
@@ -6,8 +6,10 @@ A local, competitive party game for 2–4 players in the browser. Players race
 along a cursed board game while the board unleashes effects into the house
 they are physically in. The house is a 2D side-cutaway diorama. Each round
 ends with a Mario Party-style minigame, played inside the house as it
-currently stands. First to the end of the board wins. If the house falls
-apart first, **everyone loses**.
+currently stands. First to the end of the board wins. There is no doom
+meter: **the house's chaos is the threat**. Every effect that isn't contained
+makes the race slower and harder for everyone, and if nobody finishes by the
+round cap, the house wins.
 
 Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 
@@ -27,15 +29,17 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 | Play | Local, shared screen |
 | Input | Gamepads primary (browser Gamepad API, up to 4); keyboard fallback |
 | Players | 2–4; CPU bots fill empty seats from day one |
-| Mode | Competitive race, with a shared loss condition (doom meter) |
+| Mode | Competitive race. The only shared loss is the round cap |
 | Win | First piece to reach **or pass** the board's final space (no exact roll) |
 | Round cap | Hard cap (tune, ~15 rounds). If nobody has finished, the house wins and everyone loses |
-| Shared loss | Doom meter fills, so all players lose. Always visible |
 | Length | 30–45 min, about 10–12 rounds |
 | View | 2D side cutaway (dollhouse cross-section), pixel art |
 | House | Medium: about 9 rooms over 3 floors; one house for v1 |
 | Avatar movement | Platformer: run, jump, gravity, stairs/ladders |
 | Board as prop | The board is a physical object in the house. Every round starts with everyone walking back to it, and minigame goals can use it |
+| House connections | Doors, stairs, ladders, and vents/holes (some created by effects, e.g. meteor holes) |
+| Base resolution | 480×270 pixel art, scaled up |
+| Starter content | The 8 hazards, 6 goals and items in §5–6 are accepted. "Shield from one effect" is cut |
 | Turn order | Set by arrival order at the board during the regroup walk |
 | Regroup stragglers | After a timer (tune), stragglers are teleported to the board and go last |
 | Formats by player count | 4 players: FFA / 1v3 / 2v2. With 2–3 players: always FFA |
@@ -49,7 +53,7 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 | Minigame reward | Currency (coins) |
 | Effect targeting | Some cards name their room or area; others pick a random room |
 | Effect persistence | Stays until paid off (repair) or **contained** by a good group result. Auto-expiry after X rounds is deferred until playtesting |
-| Doom sources | Poor group minigame performance **and** lingering effects |
+| Doom meter | **Removed.** The accumulated chaos in the house plays that role |
 | Coin sinks | Items, house repair, minigame perks, toll gates and shortcuts |
 | Repair | Only on Repair spaces (land or pass), so it is scarce and depends on board position |
 | Board-prop effects | Some cards can move, block or damage the board prop, which changes the regroup route |
@@ -82,8 +86,7 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 │    coins paid by placement                                       │
 │    group score ≥ containment bar → new effect contained (gone)   │
 │    otherwise it lingers                                          │
-│    doom += f(group score, lingering effects)                     │
-│    doom full → everyone loses                                    │
+│    round == cap and nobody finished → house wins, everyone loses │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -111,7 +114,7 @@ links, plus forks.
 | Danger | locked | Draws an effect card into the round's pool |
 | Blue (+coins) / Red (−coins) | proposal | MP4's coin spaces. Also gives each player a "colour" for picking the minigame format (see §5.3) |
 | Shop | proposal | Buy items |
-| Repair | locked | Land on or pass it to pay to clear a lingering effect or reduce doom. This is the only place repair can happen |
+| Repair | locked | Land on or pass it to pay to clear a lingering effect. This is the only place repair can happen |
 | Toll gate | locked as a sink | Pay to pass, or take the long way |
 | Shortcut | locked as a sink | Pay to open a faster branch |
 | Final space | locked | Reaching it wins |
@@ -130,7 +133,7 @@ rounds.
 ## 4. The house
 
 - **Layout:** a side cutaway with 3 floors and about 9 rooms, connected by
-  doors, stairs/ladders and maybe vents (open, §13).
+  doors, stairs, ladders and vents/holes. Effects can create new holes.
 - **The board** sits on a table in one room. Where that room is decides how
   long the regroup walk takes from each part of the house. **Some cards
   move, block or damage the board** (e.g. a flood carries it to another room,
@@ -156,7 +159,6 @@ Each card defines:
 - **targeting**: either a named room or area, or "random room"
 - a **lingering state**: the tags or blocked connections it leaves behind if
   it isn't contained
-- a **doom weight**: how much pressure it adds each round while it lingers
 - **compatible goals** (optional): goals this hazard shouldn't be paired with.
   This reduces dud combinations in the hazard × goal mix
 
@@ -222,26 +224,34 @@ competitive game: sabotaging a rival can also sink the group score.
 
 | Sink | Examples (proposal) |
 |---|---|
-| Items | Double die; reroll; "steer the roulette" (re-spin once); push a rival's piece back 2; shield from one effect |
-| Repair | Clear one lingering effect; lower doom by N |
+| Items | Double die; reroll; "steer the roulette" (re-spin once); push a rival's piece back 2 |
+| Repair | Clear one lingering effect from the house |
 | Minigame perks | Buy a head start, a better spawn point, or a one-use tool for the next minigame |
 | Tolls / shortcuts | Pay to pass a gate; pay to open a shortcut branch |
 
 **Core tension:** repair is a public good. Every coin spent on repair is a
-coin not spent getting ahead. If nobody repairs, everyone loses. That
-tragedy-of-the-commons pull is the heart of the competitive-but-shared design.
+coin not spent getting ahead, yet a cleaner house helps every player,
+rivals included. If nobody repairs, the house keeps getting harder for
+everyone: slower regroups and nastier minigames, which drags the race toward
+the round cap. That tragedy-of-the-commons pull is the heart of the
+competitive-but-shared design.
 
 ---
 
-## 7. Doom meter
+## 7. The house as the threat (replaces the doom meter)
 
-- Always on screen, and a full meter means everyone loses.
-- **Each round:** doom goes up by the sum of the doom weights of lingering
-  effects, plus a penalty when the group score is poor (both tune).
-- **Goes down:** through repair (coins) and containment (a good group score
-  stops an effect from adding doom in future rounds).
-- **Visible feedback in the house as it climbs (proposal):** cracks, light
-  flicker, background shake. Purely cosmetic and driven by the doom value.
+- There is no meter. The pressure is **the number and placement of lingering
+  effects**, which you can see directly in the diorama.
+- **It gets worse** whenever a card's effect isn't contained (group score
+  below the bar).
+- **It gets better** through containment and through repair on Repair spaces.
+- **Why it matters:** lingering effects stack into later minigames and
+  regroup walks. A chaotic house means slower regroups, more stragglers
+  teleported to last place, and harder minigames. That stretches the game
+  toward the round cap.
+- **HUD (proposal):** a small list of active effects and the room each is in,
+  plus the round counter shown as "round n / cap".
+- Auto-expiry of lingering effects after X rounds stays deferred until playtesting.
 
 ---
 
@@ -253,8 +263,9 @@ Bots ship from day one, following MP4's pattern:
 - **Difficulty** is a mistake chance plus reaction delay (tune).
 - **Board decisions** at forks, shops, tolls and repair use simple scored
   heuristics, e.g. "path length to finish versus coins". Repair behaviour
-  needs a rule. Proposal: bots repair when doom is above a threshold, more
-  readily at higher difficulty.
+  needs a rule. Proposal: bots repair when a lingering effect blocks their
+  own regroup route, or when the house has N or more lingering effects (tune).
+  They do this more readily at higher difficulty and as the round cap nears.
 - **Minigames:** each goal type ships with a bot behaviour, so a new goal
   isn't done until its bot works. Hazards only need avoidance hints (danger
   zones for bots to steer around).
@@ -266,7 +277,6 @@ Bots ship from day one, following MP4's pattern:
 - **Win:** first piece onto the final space. The house "reverses" for the
   winner. (Ending cinematic: the world rebuilds from an empty effect list and
   rewinds.)
-- **Lose (everyone):** the doom meter fills.
 - **Lose (everyone), round cap:** if nobody has finished by the hard cap (tune, ~15 rounds), the house wins.
 
 ---
@@ -276,14 +286,13 @@ Bots ship from day one, following MP4's pattern:
 ```
 src/
   core/          pure TS, no Phaser: rules, deterministic, unit-tested
-    state.ts       GameState: seed, round, doom, players, board, house, active effects
+    state.ts       GameState: seed, round, players, board, house, active effects
     board.ts       space graph, movement, junctions, space resolution
     house.ts       rooms, tags, connections; derive(house, effects)
     effects.ts     effect cards: data plus pure apply/derive rules
     goals.ts       goal definitions and scoring
     format.ts      FFA/1v3/2v2 assignment
     economy.ts     payouts, shop, repair, tolls
-    doom.ts
     rng.ts         seeded, named streams: board, cards, minigame, cosmetic
     flow.ts        round state machine (regroup → turns → house → minigame → settle)
   input/         Gamepad API + keyboard → per-seat virtual controller
@@ -291,7 +300,7 @@ src/
   game/          Phaser scenes
     HouseScene      one scene for the house: regroup, minigames and the board prop
     BoardOverlay    board UI and piece movement, drawn over the house
-    HudScene        doom meter, coins, turn order
+    HudScene        coins, turn order, round/cap, active effects
   content/       data: house layout, board layout, cards, goals, items
 ```
 
@@ -333,13 +342,13 @@ src/
 v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 1. **Core rules, headless:** GameState, the board graph, the house plus
-   `derive`, the flow state machine, RNG, economy, doom. Simulate full games
+   `derive`, the flow state machine, RNG, economy, round cap. Simulate full games
    with bot stubs in tests and check that games run about 10–12 rounds.
 2. **Input layer:** gamepads, keyboard and virtual controllers; a seat-join screen.
 3. **House greybox in Phaser:** 3 floors, about 9 rooms, platformer movement,
    the regroup walk, the board prop.
 4. **First minigame end to end:** one hazard (Flood) and one goal (Collect),
-   FFA only, with settle and doom. **First playable.**
+   FFA only, with settle and containment. **First playable.**
 5. Board overlay and turn UI, shops, tolls and repair.
 6. Formats (1v3, 2v2), the remaining goals and hazards, and bot behaviour per goal.
 7. Pixel-art pass, the roulette and cutscenes, the ending.
@@ -348,17 +357,6 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 ## 13. Open questions
 
-**Rules**
-1. **Doom hit from a minigame:** scaled smoothly with the group score, or only
-   below a threshold?
-
-**Content**
-
-2. **House connections:** stairs and ladders only, or vents and holes too?
-3. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
-   swap?
-
-**Presentation**
-
-4. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
-   and sprite scale.
+All of the first round of open questions are resolved. Remaining work is
+tuning (marked **(tune)**) and reviewing the **(proposal)** items above:
+the round budget, the space list, the item specifics and bot rules.
