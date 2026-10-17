@@ -95,6 +95,12 @@ export class GameScene extends Phaser.Scene {
     this.waiters = [];
     this.quitting = false;
     this.avatarsActive = false;
+    // The scene instance is reused between games: drop stale references.
+    this.hudTexts = [];
+    this.lingering = undefined;
+    this.collider = undefined;
+    this.house = undefined as unknown as HouseView;
+    this.mgStart = -1e9;
   }
 
   create() {

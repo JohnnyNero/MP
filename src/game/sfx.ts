@@ -3,6 +3,9 @@
 let ctx: AudioContext | null = null;
 
 function ac(): AudioContext | null {
+  // Browsers block audio until the page has had a user gesture.
+  const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+  if (!ctx && ua && !ua.hasBeenActive) return null;
   try {
     ctx ??= new AudioContext();
     if (ctx.state === 'suspended') void ctx.resume();
