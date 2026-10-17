@@ -37,6 +37,10 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 | Avatar movement | Platformer: run, jump, gravity, stairs/ladders |
 | Board as prop | The board is a physical object in the house. Every round starts with everyone walking back to it, and minigame goals can use it |
 | Turn order | Set by arrival order at the board during the regroup walk |
+| Regroup stragglers | After a timer (tune), stragglers are teleported to the board and go last |
+| Formats by player count | 4 players: FFA / 1v3 / 2v2. With 2–3 players: always FFA |
+| Currency | Coins only. No second score (turns run one at a time, so there are no finish ties) |
+| First house | An ordinary suburban home. Cards stay mixed-theme |
 | Card trigger | Only dedicated **danger spaces** draw effect cards |
 | Which card plays | Roulette picks one of this round's drawn cards. The others are **discarded** |
 | No card drawn | Generic minigame in the house as it currently stands |
@@ -193,7 +197,7 @@ MP4 uses the colour of the space each player landed on. **Proposal:**
 - danger, shop and other spaces are "neutral" and get filled in randomly,
   weighted toward balance
 - the result is 4 matching → FFA, 3+1 → 1v3, 2+2 → 2v2
-- with 2 or 3 players: always FFA, or a 1v2 format for 3 players? (open, §13)
+- with 2 or 3 players: always FFA (locked)
 
 ### 5.4 Containment and the group score
 
@@ -345,23 +349,16 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 ## 13. Open questions
 
 **Rules**
-1. **Formats with 2–3 players:** always FFA, or a 1v2 format for 3 players?
-2. **Regroup ties and stragglers:** a time limit on the walk? What happens to
-   someone stuck behind a blocked route?
-3. **Doom hit from a minigame:** scaled smoothly with the group score, or only
+1. **Doom hit from a minigame:** scaled smoothly with the group score, or only
    below a threshold?
-4. **Coins and stars:** are coins the only currency, or is there a second
-   score (e.g. stars) for tiebreaks?
 
 **Content**
 
-5. **House connections:** stairs and ladders only, or vents and holes too?
-6. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
+2. **House connections:** stairs and ladders only, or vents and holes too?
+3. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
    swap?
-7. **Theme of the first house:** the cards mix themes, but is the house
-   itself a normal suburban home, a mansion, or something else?
 
 **Presentation**
 
-8. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
+4. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
    and sprite scale.
