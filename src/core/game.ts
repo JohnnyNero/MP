@@ -372,7 +372,7 @@ export function computeFormat(state: GameState): { format: Format; teams: number
   return { format: '1v3', teams, soloTeam: reds === 1 ? 1 : 0 };
 }
 
-function targetRooms(state: GameState, card: HazardId): string[] {
+export function targetRooms(state: GameState, card: HazardId): string[] {
   const t = CARDS[card].targeting;
   if (t.kind === 'floor') return roomsOnFloor(t.floor);
   if (t.kind === 'randomFloor') return roomsOnFloor(randInt(state.rng, 'house', 3));
