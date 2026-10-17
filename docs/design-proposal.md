@@ -28,7 +28,8 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 | Input | Gamepads primary (browser Gamepad API, up to 4); keyboard fallback |
 | Players | 2–4; CPU bots fill empty seats from day one |
 | Mode | Competitive race, with a shared loss condition (doom meter) |
-| Win | First piece to reach the board's final space |
+| Win | First piece to reach **or pass** the board's final space (no exact roll) |
+| Round cap | Hard cap (tune, ~15 rounds). If nobody has finished, the house wins and everyone loses |
 | Shared loss | Doom meter fills, so all players lose. Always visible |
 | Length | 30–45 min, about 10–12 rounds |
 | View | 2D side cutaway (dollhouse cross-section), pixel art |
@@ -46,6 +47,8 @@ Structural reference: [`mp4-cleanroom-analysis.md`](mp4-cleanroom-analysis.md).
 | Effect persistence | Stays until paid off (repair) or **contained** by a good group result. Auto-expiry after X rounds is deferred until playtesting |
 | Doom sources | Poor group minigame performance **and** lingering effects |
 | Coin sinks | Items, house repair, minigame perks, toll gates and shortcuts |
+| Repair | Only on Repair spaces (land or pass), so it is scarce and depends on board position |
+| Board-prop effects | Some cards can move, block or damage the board prop, which changes the regroup route |
 | Agency | Mainly from winning minigames, which earns coins to spend |
 
 ---
@@ -104,7 +107,7 @@ links, plus forks.
 | Danger | locked | Draws an effect card into the round's pool |
 | Blue (+coins) / Red (−coins) | proposal | MP4's coin spaces. Also gives each player a "colour" for picking the minigame format (see §5.3) |
 | Shop | proposal | Buy items |
-| Repair | proposal | Pay to clear a lingering effect or reduce doom. Or should repair happen anywhere, at any time? (open, §13) |
+| Repair | locked | Land on or pass it to pay to clear a lingering effect or reduce doom. This is the only place repair can happen |
 | Toll gate | locked as a sink | Pay to pass, or take the long way |
 | Shortcut | locked as a sink | Pay to open a faster branch |
 | Final space | locked | Reaching it wins |
@@ -113,8 +116,7 @@ links, plus forks.
 a shop or toll triggers its event during movement (MP4's "passing" hook);
 landing resolves the space.
 
-**Finish rule:** does a player need an exact roll to land on the final space,
-or is passing it enough? (open, §13)
+**Finish rule:** reaching or passing the final space wins. No exact roll.
 
 **Length:** tune the path length and forks so a typical game ends in 10–12
 rounds.
@@ -126,8 +128,9 @@ rounds.
 - **Layout:** a side cutaway with 3 floors and about 9 rooms, connected by
   doors, stairs/ladders and maybe vents (open, §13).
 - **The board** sits on a table in one room. Where that room is decides how
-  long the regroup walk takes from each part of the house. Can effects move
-  the board? (open, §13)
+  long the regroup walk takes from each part of the house. **Some cards
+  move, block or damage the board** (e.g. a flood carries it to another room,
+  vines wrap it so it must be freed). This changes the regroup route.
 - **Room tags** carry state, e.g. `wet`, `dark`, `overgrown`, `burning`,
   `zero_g`. Lingering effects set tags, and both minigames and the regroup
   walk read them.
@@ -260,8 +263,7 @@ Bots ship from day one, following MP4's pattern:
   winner. (Ending cinematic: the world rebuilds from an empty effect list and
   rewinds.)
 - **Lose (everyone):** the doom meter fills.
-- **Round cap:** none decided. What if nobody finishes but doom never fills?
-  Proposal: a hard cap where the house wins. (open, §13)
+- **Lose (everyone), round cap:** if nobody has finished by the hard cap (tune, ~15 rounds), the house wins.
 
 ---
 
@@ -343,27 +345,23 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 ## 13. Open questions
 
 **Rules**
-1. **Finish:** exact roll to land on the final space, or is passing it enough?
-2. **Round cap:** a hard cap where the house wins, or none?
-3. **Repair:** only on Repair spaces, at the board on your turn, or anytime?
-4. **Formats with 2–3 players:** always FFA, or a 1v2 format for 3 players?
-5. **Regroup ties and stragglers:** a time limit on the walk? What happens to
+1. **Formats with 2–3 players:** always FFA, or a 1v2 format for 3 players?
+2. **Regroup ties and stragglers:** a time limit on the walk? What happens to
    someone stuck behind a blocked route?
-6. **The board prop:** can effects move it, block it or damage it?
-7. **Doom hit from a minigame:** scaled smoothly with the group score, or only
+3. **Doom hit from a minigame:** scaled smoothly with the group score, or only
    below a threshold?
-8. **Coins and stars:** are coins the only currency, or is there a second
+4. **Coins and stars:** are coins the only currency, or is there a second
    score (e.g. stars) for tiebreaks?
 
 **Content**
 
-9. **House connections:** stairs and ladders only, or vents and holes too?
-10. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
-    swap?
-11. **Theme of the first house:** the cards mix themes, but is the house
-    itself a normal suburban home, a mansion, or something else?
+5. **House connections:** stairs and ladders only, or vents and holes too?
+6. **The starter lists** of hazards, goals and items in §5–6: keep, cut or
+   swap?
+7. **Theme of the first house:** the cards mix themes, but is the house
+   itself a normal suburban home, a mansion, or something else?
 
 **Presentation**
 
-12. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
-    and sprite scale.
+8. **Base pixel resolution** (e.g. 320×180 or 480×270)? This decides tile
+   and sprite scale.
