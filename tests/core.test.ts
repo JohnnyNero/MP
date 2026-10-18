@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOARD,
+  FFA_STEPS,
   FIRST_ARRIVAL_BONUS,
   GATE_COST,
   REPAIR_BONUS_STEPS,
   REPAIR_COST,
   REPAIR_MAX_COST,
   ROUND_CAP,
+  SOLO_WIN_STEPS,
   STARTING_COINS,
+  TEAM_2V2_STEPS,
   TOLL_COST,
+  TRIO_WIN_STEPS,
 } from '../src/content/board';
+import { CARDS, GOALS, SHOP } from '../src/content/cards';
 import { distToFinish } from '../src/core/board';
 import {
   addLingeringEffect,
@@ -18,12 +23,14 @@ import {
   planHouseTurn,
   repairOptions,
   settle,
+  shopOptions,
   startRound,
+  validGoals,
   type TurnEvent,
 } from '../src/core/game';
 import { deriveHouse, reachable } from '../src/core/house';
-import { runTurnSync, simulateGame } from '../src/core/sim';
-import type { MinigamePlan } from '../src/core/types';
+import { fakeMinigame, runTurnSync, simulateGame } from '../src/core/sim';
+import type { Format, HazardId, MinigamePlan } from '../src/core/types';
 
 const four = [
   { name: 'A', isBot: false },
@@ -142,9 +149,9 @@ describe('house turn and settle', () => {
   });
   it('payouts', () => {
     const base: MinigamePlan = { card: null, rooms: [], goal: 'collect', format: 'ffa', teams: [0, 0, 0, 0], soloTeam: -1, rouletteOptions: [], rouletteIndex: -1 };
-    expect(computePayouts(base, [5, 9, 1, 9]).payouts).toEqual([3, 10, 1, 10]);
+    expect(computePayouts(base, [5, 9, 1, 9]).payouts).toEqual([2, 6, 1, 6]);
     const v13 = { ...base, format: '1v3' as const, teams: [1, 0, 0, 0], soloTeam: 1 };
-    expect(computePayouts(v13, [10, 3, 3, 3]).payouts).toEqual([15, 2, 2, 2]);
+    expect(computePayouts(v13, [10, 3, 3, 3]).payouts).toEqual([9, 2, 2, 2]);
   });
   it('house wins at the round cap', () => {
     const s = newGame(7, four);
@@ -174,8 +181,8 @@ describe('simulation', () => {
     }
     const avg = rounds.reduce((a, b) => a + b, 0) / rounds.length;
     console.log(`avg rounds ${avg.toFixed(2)}, min ${Math.min(...rounds)}, max ${Math.max(...rounds)}, house wins ${houseWins}/300`);
-    expect(avg).toBeGreaterThan(11.5);
-    expect(avg).toBeLessThan(13.5);
+    expect(avg).toBeGreaterThan(11);
+    expect(avg).toBeLessThan(13);
     expect(Math.max(...rounds)).toBeLessThanOrEqual(ROUND_CAP);
     expect(houseWins).toBeLessThan(15); // the house should win rarely (< 5%)
   });
@@ -354,5 +361,135 @@ describe('catch-up', () => {
     expect(s.players[2].coins).toBe(STARTING_COINS + FIRST_ARRIVAL_BONUS);
     expect(s.players[0].coins).toBe(STARTING_COINS);
     expect(s.players[3].coins).toBe(STARTING_COINS);
+  });
+});
+
+const plan0: MinigamePlan = { card: null, rooms: [], goal: 'collect', format: 'ffa', teams: [0, 0, 0, 0], soloTeam: -1, rouletteOptions: [], rouletteIndex: -1 };
+
+describe('minigame placement grants movement', () => {
+  it('FFA: 1st and 2nd get steps, ties share the higher reward', () => {
+    const at = (r: number) => FFA_STEPS[r - 1] ?? 0;
+    expect(computePayouts(plan0, [5, 9, 1, 3]).steps).toEqual([at(2), at(1), at(4), at(3)]);
+    expect(computePayouts(plan0, [5, 9, 1, 9]).steps).toEqual([at(3), at(1), at(4), at(1)]);
+    expect(computePayouts(plan0, [4, 4, 4, 4]).steps).toEqual([at(1), at(1), at(1), at(1)]);
+  });
+  it('2v2 winners and 1v3 solo/trio winners get their steps', () => {
+    const v22 = { ...plan0, format: '2v2' as const, teams: [0, 1, 0, 1] };
+    expect(computePayouts(v22, [5, 1, 5, 1]).steps).toEqual([TEAM_2V2_STEPS, 0, TEAM_2V2_STEPS, 0]);
+    const v13 = { ...plan0, format: '1v3' as const, teams: [1, 0, 0, 0], soloTeam: 1 };
+    expect(computePayouts(v13, [10, 3, 3, 3]).steps).toEqual([SOLO_WIN_STEPS, 0, 0, 0]);
+    expect(computePayouts(v13, [1, 3, 3, 3]).steps).toEqual([0, TRIO_WIN_STEPS, TRIO_WIN_STEPS, TRIO_WIN_STEPS]);
+  });
+  it('settle stores the steps as pending, as plain JSON', () => {
+    const s = newGame(21, four);
+    startRound(s, [0, 1, 2, 3]);
+    const rep = settle(s, planHouseTurn(s), { scores: [1, 9, 5, 3], groupScore: 1 });
+    expect(s.players.map((p) => p.pendingSteps)).toEqual(rep.steps);
+    expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+  });
+  it('pending steps are walked before the roll, passing but not landing', () => {
+    const s = newGame(22, four);
+    // Start two spaces before a blue space so the bonus walk ends on it.
+    const prev2 = Object.values(BOARD.spaces).find((a) => {
+      const b = BOARD.spaces[a.next[0]];
+      return a.next.length === 1 && b.type === 'blue' && b.next.length === 1 && BOARD.spaces[b.next[0]].type === 'blue';
+    })!;
+    const prev = BOARD.spaces[prev2.next[0]];
+    const blue = BOARD.spaces[prev.next[0]];
+    s.players[0].space = prev2.id;
+    s.players[0].pendingSteps = 2;
+    startRound(s, [0, 1, 2, 3]);
+    const { evs } = collect(s, 0, (d) => (d.dec.d === 'junction' ? 0 : d.dec.d === 'preRoll' ? 'roll' : null));
+    expect(evs[0]).toEqual({ t: 'bonusSteps', steps: 2, reason: 'Minigame reward' });
+    expect(evs[1]).toMatchObject({ t: 'move', from: prev2.id, to: prev.id });
+    expect(evs[2]).toMatchObject({ t: 'move', from: prev.id, to: blue.id, stepsLeft: 0 });
+    expect(evs[3].t).toBe('roll'); // no Blue space coins: the bonus walk doesn't land
+    expect(s.players[0].pendingSteps).toBe(0);
+  });
+  it('the bonus walk offers the shop when passing it', () => {
+    const s = newGame(23, four);
+    const pre = before('shop');
+    s.players[0].space = pre.id;
+    s.players[0].coins = 30;
+    s.players[0].pendingSteps = 2;
+    startRound(s, [0, 1, 2, 3]);
+    const { decs } = collect(s, 0, (d) => (d.dec.d === 'preRoll' ? 'roll' : d.dec.d === 'junction' ? 0 : null));
+    expect(decs[0]).toBe('shop');
+  });
+});
+
+describe('perks are gone', () => {
+  it('the shop sells only board items', () => {
+    expect(SHOP.map((e) => e.id).sort()).toEqual(['doubleDie', 'pushBack', 'reroll', 'respin', 'warpSwap']);
+    const s = newGame(24, four);
+    s.players[0].coins = 100;
+    expect(shopOptions(s.players[0]).every((o) => SHOP.some((e) => e.id === o.id))).toBe(true);
+    expect('perks' in s.players[0]).toBe(false);
+  });
+});
+
+describe('hazard x goal pairs', () => {
+  const formats: Format[] = ['ffa', '1v3', '2v2'];
+  it('every hazard has at least 3 valid goals in every format', () => {
+    for (const id of Object.keys(CARDS) as HazardId[]) {
+      for (const f of formats) expect(validGoals(id, f).length, `${id} ${f}`).toBeGreaterThanOrEqual(3);
+    }
+    for (const f of formats) expect(validGoals(null, f).length).toBe(GOALS.filter((g) => g.formats.includes(f)).length);
+  });
+  it('the house never picks an incompatible goal', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const s = newGame(seed, four);
+      startRound(s, [0, 1, 2, 3]);
+      s.pool = [{ card: 'blackout', drawnBy: 0 }];
+      expect(planHouseTurn(s).goal).not.toBe('race');
+    }
+  });
+});
+
+describe('balance sim', () => {
+  it('scores follow difficulty and the group score follows the table', () => {
+    const s = newGame(25, four.map((p, i) => ({ ...p, isBot: true, difficulty: i })));
+    const sum = [0, 0, 0, 0];
+    let group = 0;
+    for (let k = 0; k < 400; k++) {
+      const r = fakeMinigame(s, plan0);
+      r.scores.forEach((v, i) => (sum[i] += v));
+      group += r.groupScore;
+      expect(r.groupScore).toBeGreaterThanOrEqual(0);
+      expect(r.groupScore).toBeLessThanOrEqual(1);
+    }
+    for (let i = 1; i < 4; i++) expect(sum[i]).toBeGreaterThan(sum[i - 1]);
+    // An average table (mean difficulty 1.5) sits near the containment bar.
+    expect(group / 400).toBeGreaterThan(0.6);
+    expect(group / 400).toBeLessThan(0.7);
+    const experts = newGame(26, four.map((p) => ({ ...p, isBot: true, difficulty: 3 })));
+    const novices = newGame(26, four.map((p) => ({ ...p, isBot: true, difficulty: 0 })));
+    let e = 0;
+    let n = 0;
+    for (let k = 0; k < 200; k++) {
+      e += fakeMinigame(experts, plan0).groupScore;
+      n += fakeMinigame(novices, plan0).groupScore;
+    }
+    expect(e).toBeGreaterThan(n);
+  });
+  it('containment rate and skill both matter in whole games', () => {
+    let hazards = 0;
+    let contained = 0;
+    const wins = [0, 0, 0, 0];
+    for (let seed = 1; seed <= 200; seed++) {
+      const s = simulateGame(seed, 4, {
+        onSettle: (_st, plan, rep) => {
+          if (!plan.card) return;
+          hazards++;
+          if (rep.contained) contained++;
+        },
+      });
+      if (s.winner !== null && s.winner >= 0) wins[s.players[s.winner].difficulty]++;
+    }
+    const rate = contained / hazards;
+    console.log(`4p containment ${(rate * 100).toFixed(1)}%, wins by difficulty ${wins.join(',')}`);
+    expect(rate).toBeGreaterThan(0.3);
+    expect(rate).toBeLessThan(0.7);
+    expect(wins[3]).toBeGreaterThan(wins[0]);
   });
 });

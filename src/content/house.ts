@@ -24,7 +24,8 @@ export const HOUSE: HouseDef = {
     { id: 'l-garage-kids', kind: 'ladder', a: 'garage', b: 'kids' },
     { id: 'l-bathroom-study', kind: 'ladder', a: 'bathroom', b: 'study' },
     { id: 'l-kids-storage', kind: 'ladder', a: 'kids', b: 'storage' },
-    { id: 'v-living-attic', kind: 'vent', a: 'living', b: 'attic' },
+    // One-way laundry chute: attic hatch down to the living room (a = lower end).
+    { id: 'c-attic-living', kind: 'chute', a: 'living', b: 'attic' },
   ],
   boardRoom: 'living',
 };

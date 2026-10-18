@@ -964,13 +964,9 @@ export function makeHouseTextures(scene: Phaser.Scene): void {
     p.set(28, 0, 0xc070ff);
   });
 
-  // Overwrite placeholders with the same sizes (vents and crates have fixed footprints).
-  make(scene, 'vent', 12, 5, (p) => {
-    p.rect(0, 0, 12, 5, INK);
-    p.rect(1, 1, 10, 3, 0x8a90a8);
-    for (let x = 2; x < 11; x += 2) p.vline(x, 1, 3, 0x2a2838);
-    p.hline(1, 1, 10, 0xc8d0e0);
-  });
+  makeChuteTextures(scene);
+
+  // Overwrite placeholders with the same sizes (crates have fixed footprints).
   make(scene, 'crate', 12, 12, (p) => {
     p.rect(0, 0, 12, 12, INK);
     p.rect(1, 1, 10, 10, 0xc08a4a);
@@ -1007,6 +1003,182 @@ export function makeHouseTextures(scene: Phaser.Scene): void {
   });
 
   makeFurniture(scene);
+}
+
+// ------------------------------------------------------------------ laundry chute
+/** Metal pipe cross-section, light side (left / top) to shaded side. */
+const PIPE = [INK, 0xe8f0f8, 0xb8c0d8, 0x9aa2bc, 0x8a90a8, 0x7a809a, 0x6a7090, 0x52587a, 0x3a3f5a, INK];
+const CHUTE_GLOW = 0x8af0ff;
+const HAZARD = 0xf2c94c;
+
+/** Draw a tiny sprite from rows of characters (`.` = transparent). */
+function rows(p: Px, x0: number, y0: number, art: string[], pal: Record<string, number>) {
+  art.forEach((row, y) => [...row].forEach((ch, x) => ch !== '.' && pal[ch] !== undefined && p.set(x0 + x, y0 + y, pal[ch])));
+}
+
+/** 3x5 pixel font, just enough letters for the sign. */
+const FONT: Record<string, string[]> = {
+  C: ['111', '100', '100', '100', '111'],
+  H: ['101', '101', '111', '101', '101'],
+  U: ['101', '101', '101', '101', '111'],
+  T: ['111', '010', '010', '010', '010'],
+  E: ['111', '100', '110', '100', '111'],
+};
+
+/** Hatch (with its lid standing open), hazard sign, bobbing arrow and glow. */
+function makeChuteTextures(scene: Phaser.Scene) {
+  // 22x20; the floor surface is row 14, the slab rows 14..19.
+  make(scene, 'chute-hatch', 22, 20, (p) => {
+    // Dark shaft going down, a cyan chevron hinting "down".
+    for (let y = 14; y < 20; y++) for (let x = 3; x < 15; x++) p.set(x, y, dith(x, y, (y - 14) / 6) ? 0x05030a : CAVITY);
+    rows(p, 6, 15, ['k.....k', '.k...k.', '..kgk..', '...k...'], { k: shade(CHUTE_GLOW, 0.55), g: CHUTE_GLOW });
+    // Frame posts with hazard stripes, raised 5px above the floor.
+    for (const x0 of [0, 15]) {
+      for (let y = 9; y < 20; y++)
+        for (let x = x0; x < x0 + 3; x++) p.set(x, y, x === x0 || x === x0 + 2 || y === 9 ? INK : (x + y) % 4 < 2 ? HAZARD : INK);
+    }
+    // Rim across the opening's top edge, lit from inside.
+    p.hline(3, 13, 12, INK);
+    p.hline(3, 14, 12, shade(CHUTE_GLOW, 0.7));
+    // The lid, hinged on the right and leaning open.
+    for (let y = 0; y < 12; y++) {
+      const x = 18 + (y < 5 ? 1 : 0);
+      p.set(x - 1, y, INK);
+      p.set(x, y, mix(WOOD, 0xffffff, 0.25));
+      p.set(x + 1, y, y < 3 ? HAZARD : WOOD);
+      p.set(x + 2, y, INK);
+    }
+    p.hline(18, 0, 3, INK);
+    p.rect(17, 12, 4, 2, 0x8a8a9a);
+    p.set(17, 12, INK);
+  });
+
+  // Hazard sign with "CHUTE" in a 3x5 pixel font. 25x11.
+  make(scene, 'chute-sign', 25, 11, (p) => {
+    p.rect(0, 0, 25, 11, INK);
+    p.rect(1, 1, 23, 9, HAZARD);
+    p.hline(1, 1, 23, mix(HAZARD, 0xffffff, 0.45));
+    p.hline(1, 9, 23, shade(HAZARD, 0.7));
+    [...'CHUTE'].forEach((ch, i) => FONT[ch].forEach((r, y) => [...r].forEach((b, x) => b === '1' && p.set(3 + i * 4 + x, 3 + y, INK))));
+    p.set(2, 2, 0x8a8a9a);
+    p.set(22, 2, 0x8a8a9a);
+  });
+
+  // Down arrow. 9x8.
+  make(scene, 'chute-arrow', 9, 8, (p) => {
+    rows(p, 0, 0, ['..kkkkk..', '..kyyyk..', '..kyyyk..', 'kkkyyykkk', '.kyyyyyk.', '..kyyyk..', '...kyk...', '....k....'], {
+      k: INK,
+      y: HAZARD,
+    });
+  });
+
+  make(scene, 'chute-glow', 26, 18, (p) => {
+    for (let y = 0; y < 18; y++)
+      for (let x = 0; x < 26; x++) {
+        const d = Math.sqrt(((x - 13) / 13) ** 2 + ((y - 9) / 9) ** 2);
+        if (d >= 1) continue;
+        const a = d < 0.4 ? 80 : d < 0.7 ? 45 : dith(x, y, (1 - d) * 3) ? 20 : 0;
+        if (a) p.set(x, y, CHUTE_GLOW, a);
+      }
+  });
+}
+
+/**
+ * The chute's pipe as one texture: a funnel under the hatch, straight runs with
+ * hazard bands and flow chevrons, chunky elbow collars, and a flared mouth
+ * pointing down at the last point. Returns the key and its world top-left.
+ */
+export function chutePipeTexture(scene: Phaser.Scene, id: string, hatchX: number, path: [number, number][]) {
+  const key = `chute-pipe-${id}`;
+  const xs = path.map((q) => q[0]);
+  const ys = path.map((q) => q[1]);
+  const ox = Math.min(...xs, hatchX) - 10;
+  const oy = Math.min(...ys) - 2;
+  const w = Math.max(...xs, hatchX) + 10 - ox;
+  const h = Math.max(...ys) + 4 - oy;
+  if (scene.textures.exists(key)) return { key, x: ox, y: oy };
+  make(scene, key, w, h, (p) => {
+    const at = (x: number, y: number, c: number) => p.set(x - ox, y - oy, c);
+    // Funnel from the hatch opening into the pipe.
+    const [fx, fy] = path[0];
+    const [px, py] = path[1];
+    for (let y = fy; y <= py; y++) {
+      const t = (y - fy) / Math.max(1, py - fy);
+      const l = Math.round(fx - 8 + (px - 5 - (fx - 8)) * t);
+      const r = Math.round(fx + 8 + (px + 4 - (fx + 8)) * t);
+      for (let x = l; x <= r; x++) at(x, y, PIPE[Math.round(((x - l) / Math.max(1, r - l)) * 9)]);
+    }
+    // Straight runs (extended into the corners so elbows fill).
+    const last = path.length - 1;
+    for (let k = 1; k < last; k++) {
+      const [ax, ay] = path[k];
+      const [bx, by] = path[k + 1];
+      const vertical = ax === bx;
+      const dir = Math.sign(vertical ? by - ay : bx - ax);
+      const a = (vertical ? ay : ax) - (k === 1 ? 0 : 5 * dir);
+      const b = (vertical ? by : bx) + (k + 1 === last ? 0 : 5 * dir);
+      const len = Math.abs(b - a);
+      for (let s = 0; s <= len; s++) {
+        const u = a + s * dir;
+        for (let i = 0; i < 10; i++) {
+          const v = (vertical ? ax : ay) - 5 + i;
+          vertical ? at(v, u, PIPE[i]) : at(u, v, PIPE[i]);
+        }
+        // Hazard bands and flow chevrons.
+        if (s > 8 && s < len - 8 && s % 28 === 0) {
+          for (let i = -1; i < 11; i++) {
+            const v = (vertical ? ax : ay) - 5 + i;
+            for (let q = 0; q < 2; q++) {
+              const c = i === -1 || i === 10 ? INK : q === 0 ? mix(HAZARD, 0xffffff, 0.35) : shade(HAZARD, 0.8);
+              vertical ? at(v, u + q * dir, c) : at(u + q * dir, v, c);
+            }
+            vertical ? at(v, u - dir, INK) : at(u - dir, v, INK);
+            vertical ? at(v, u + 2 * dir, INK) : at(u + 2 * dir, v, INK);
+          }
+        } else if (s > 8 && s < len - 8 && s % 28 === 14) {
+          // A "V" (or ">") pointing along the flow, two pixels thick.
+          for (let j = -3; j <= 2; j++) {
+            const back = Math.abs(j + 0.5) - 0.5;
+            for (let t = 0; t < 2; t++) {
+              const along = u - (back + t) * dir;
+              const c = t === 0 ? 0xffffff : CHUTE_GLOW;
+              vertical ? at(ax + j, along, c) : at(along, ay + j, c);
+            }
+          }
+        }
+      }
+    }
+    // Elbow collars.
+    for (let k = 1; k < last; k++) {
+      if (k === 1) continue;
+      const [cx, cy] = path[k];
+      for (let y = cy - 6; y <= cy + 5; y++)
+        for (let x = cx - 6; x <= cx + 5; x++) {
+          const edge = x === cx - 6 || x === cx + 5 || y === cy - 6 || y === cy + 5;
+          const hi = x === cx - 5 || y === cy - 5;
+          const lo = x === cx + 4 || y === cy + 4;
+          at(x, y, edge ? INK : hi ? 0xc8d0e0 : lo ? 0x52587a : 0x7a809a);
+        }
+      for (const [dx, dy] of [
+        [-4, -4],
+        [3, -4],
+        [-4, 3],
+        [3, 3],
+      ])
+        at(cx + dx, cy + dy, INK);
+    }
+    // Flared mouth, pointing down at the last point.
+    const [mx, my] = path[last];
+    for (let j = 0; j < 8; j++) {
+      const y = my - 7 + j;
+      const hw = 5 + Math.floor((j * 4) / 7);
+      for (let x = mx - hw; x < mx + hw; x++) {
+        const i = Math.round(((x - (mx - hw)) / (2 * hw - 1)) * 9);
+        at(x, y, j === 7 ? INK : j === 6 ? (i === 0 || i === 9 ? INK : HAZARD) : j === 5 ? (i === 0 || i === 9 ? INK : shade(HAZARD, 0.75)) : PIPE[i]);
+      }
+    }
+  });
+  return { key, x: ox, y: oy };
 }
 
 // ------------------------------------------------------------------ furniture
@@ -1547,7 +1719,7 @@ export function roomDamagePx(room: DamageRoom, level: number, keep: KeepClear[])
       }
     }
   }
-  // Never cover doorways, ladders, stairs, vents or the board.
+  // Never cover doorways, ladders, stairs, chutes or the board.
   for (const k of keep) {
     wall.clearRect(k.x, k.y, k.w, k.h);
     front.clearRect(k.x, k.y, k.w, k.h);

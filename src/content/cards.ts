@@ -17,6 +17,8 @@ export const CARDS: Record<HazardId, CardDef> = {
     lingerTags: [],
     makesHole: true,
     containBar: 0.65,
+    // The flag spends most of the round off the top floor: the rocks rarely matter.
+    incompatibleGoals: ['king'],
   },
   vines: {
     id: 'vines',
@@ -35,6 +37,8 @@ export const CARDS: Record<HazardId, CardDef> = {
     lingerTags: ['cluttered'],
     movesBoard: true,
     containBar: 0.65,
+    // A herd on one floor and the flag on another: the hazard is irrelevant.
+    incompatibleGoals: ['king'],
   },
   blackout: {
     id: 'blackout',
@@ -43,14 +47,17 @@ export const CARDS: Record<HazardId, CardDef> = {
     targeting: { kind: 'randomRoom' },
     lingerTags: ['dark'],
     containBar: 0.65,
+    // You can't race to a pennant you can't see.
+    incompatibleGoals: ['race'],
   },
   gravity: {
     id: 'gravity',
     name: 'Gravity Flip',
-    blurb: 'Up is down in one room (except right by its doors, ladders and vents).',
+    blurb: 'Up is down in one room (except right by its doors, ladders, stairs and the chute).',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['lowgrav'],
     containBar: 0.65,
+    // No exclusions: goals already keep their targets out of flipped rooms.
   },
   fire: {
     id: 'fire',
@@ -93,13 +100,11 @@ export const GOALS: GoalDef[] = [
 ];
 
 export const SHOP: ShopEntry[] = [
-  { id: 'doubleDie', kind: 'item', name: 'Double Die', blurb: 'Roll two dice this turn.', price: 8 },
-  { id: 'reroll', kind: 'item', name: 'Reroll', blurb: 'Reroll once after seeing your roll.', price: 5 },
-  { id: 'pushBack', kind: 'item', name: 'Push Back', blurb: 'Send a rival back 3 spaces.', price: 8 },
-  { id: 'warpSwap', kind: 'item', name: 'Warp Swap', blurb: 'Swap board places with the leading rival.', price: 12 },
-  { id: 'respin', kind: 'item', name: 'Re-spin', blurb: 'Veto the card the roulette lands on: it picks another.', price: 6 },
-  { id: 'headStart', kind: 'perk', name: 'Head Start', blurb: 'Speed boost at the start of the next minigame.', price: 5 },
-  { id: 'springBoots', kind: 'perk', name: 'Spring Boots', blurb: 'Jump higher in the next minigame.', price: 5 },
+  { id: 'doubleDie', name: 'Double Die', blurb: 'Roll two dice this turn.', price: 12 },
+  { id: 'reroll', name: 'Reroll', blurb: 'Reroll once after seeing your roll.', price: 5 },
+  { id: 'pushBack', name: 'Push Back', blurb: 'Send a rival back 3 spaces.', price: 8 },
+  { id: 'warpSwap', name: 'Warp Swap', blurb: 'Swap board places with the leading rival.', price: 12 },
+  { id: 'respin', name: 'Re-spin', blurb: 'Veto the card the roulette lands on: it picks another.', price: 6 },
 ];
 
 export const SHOP_BY_ID = Object.fromEntries(SHOP.map((e) => [e.id, e]));

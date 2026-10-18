@@ -89,13 +89,13 @@ export class TitleScene extends Phaser.Scene {
           'Tap JUMP to join. Tap JUMP again to start. Empty seats are bots.',
           'Stick left/right = players, up/down = bot skill.',
           'Drag on the left half to move. Tap menu rows to pick.',
-          'Stick up/down on ladders and stairs, down on vents.',
+          'Stick up/down on ladders/stairs. Walk into the attic chute.',
           'First game shows tips; BACK skips them.',
         ]
       : [
           'JOIN: press jump.  Gamepad: A jump, X action, B back.',
           'Keys P1: WASD, F jump, G action, Q back.  P2: arrows, K/L/J.',
-          'Up/down climbs ladders and stairs; down on a vent crawls in.',
+          'Up/down climbs ladders/stairs. Walk into the attic chute.',
           'P1: left/right = players, up/down = bot skill, jump = START.',
           'Enter = start now (no humans: watch bots).  Esc = quit to title.',
         ];

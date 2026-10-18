@@ -128,7 +128,6 @@ export function makeTextures(scene: Phaser.Scene) {
     ],
     { p: 0x6a2a8a, g: 0x2a6a3a, r: 0xd04040, b: 0x4060d0, y: 0xe0c040, k: 0x4a2a1a, w: 0x7a4a2a },
   );
-  pixelTexture(scene, 'vent', ['kkkkkkkkkkkk', 'kgkgkgkgkgkk', 'kkkkkkkkkkkk', 'kgkgkgkgkgkk', 'kkkkkkkkkkkk'], { k: 0x505060, g: 0x202028 });
   pixelTexture(scene, 'debris', ['.bb.', 'bbbb', 'bbb.'], { b: 0x8a8070 });
   pixelTexture(scene, 'water', ['bbbb', 'bbbb'], { b: 0x3a7ad8 });
   pixelTexture(scene, 'pixel', ['w'], { w: 0xffffff });

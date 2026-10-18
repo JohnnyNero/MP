@@ -1,7 +1,8 @@
 import { distToFinish } from './board';
 import { deriveHouse } from './house';
 import { rand } from './rng';
-import { leadingRival, type Answer, type Decision } from './game';
+import type { Answer, Decision } from './events';
+import { leadingRival } from './items';
 import type { GameState, ItemId } from './types';
 
 /** Chance (0..1) that a bot skips a sensible action, by difficulty 0..3. */
@@ -49,7 +50,7 @@ export function botDecide(state: GameState, pid: number, dec: Decision): Answer 
     case 'shop': {
       const reserve = 5;
       const prefs: string[] =
-        myDist < 12 ? ['doubleDie', 'pushBack', 'reroll', 'springBoots'] : ['doubleDie', 'warpSwap', 'reroll', 'pushBack', 'headStart', 'respin', 'springBoots'];
+        myDist < 12 ? ['doubleDie', 'pushBack', 'reroll'] : ['doubleDie', 'warpSwap', 'reroll', 'pushBack', 'respin'];
       for (const id of prefs) {
         const o = dec.options.find((x) => x.id === id);
         if (o && me.coins - o.price >= reserve && !mistake(state, pid)) return o.id;

@@ -49,7 +49,7 @@ const CHIP_W = 94;
 
 const BLANK = new VirtualPad();
 const NO_FLIP = new Set<string>();
-/** Gravity stays normal this close to a doorway, ladder, stairs or vent. */
+/** Gravity stays normal this close to a doorway, ladder, stairs or chute hatch. */
 const EXIT_ZONE = 22;
 
 export class GameScene extends Phaser.Scene {
@@ -71,9 +71,6 @@ export class GameScene extends Phaser.Scene {
   private hudTexts: Phaser.GameObjects.Text[] = [];
   private roundText!: Phaser.GameObjects.Text;
   private centerText!: Phaser.GameObjects.Text;
-  private mgStart = -1e9;
-  private springSeats = new Set<number>();
-  private headStartSeats = new Set<number>();
   private rnd!: () => number;
   private quitting = false;
   private hudGfx: Phaser.GameObjects.Graphics[] = [];
@@ -112,9 +109,6 @@ export class GameScene extends Phaser.Scene {
     this.lingering = undefined;
     this.collider = undefined;
     this.house = undefined as unknown as HouseView;
-    this.mgStart = -1e9;
-    this.springSeats = new Set();
-    this.headStartSeats = new Set();
     this.hudGfx = [];
     this.hudSig = [];
     this.tipsShown = new Set();
@@ -264,8 +258,6 @@ export class GameScene extends Phaser.Scene {
         } else pad = this.padFor(i);
         const mods: AvatarMods = {
           flippedRooms: this.nearExit(av) ? NO_FLIP : c.flippedRooms,
-          speedMul: this.headStartSeats.has(i) && time - this.mgStart < 5000 ? 1.5 : 1,
-          springBoots: this.springSeats.has(i),
         };
         av.update(pad, time, dt, this.house, mods);
         // Safety net: anything that escapes the house goes back to the board.
@@ -284,7 +276,7 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ HUD / feedback
 
-  /** Top bar: one chip per player (colour pip, name, coin icon + count, item/perk icons) and the round. */
+  /** Top bar: one chip per player (colour pip, name, coin icon + count, item icons) and the round. */
   private buildHud() {
     const bar = this.add.graphics().setDepth(95);
     const bp = gfxPlot(bar);
@@ -307,7 +299,7 @@ export class GameScene extends Phaser.Scene {
   private updateHud() {
     this.state.players.forEach((p, i) => {
       const x = 2 + i * CHIP_W;
-      const inv = [...p.items, ...p.perks];
+      const inv = p.items;
       const sig = `${p.coins}|${inv.join(',')}`;
       if (sig === this.hudSig[i]) return;
       this.hudSig[i] = sig;
@@ -358,7 +350,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * In-world control prompts for each human: the button for the next ladder,
-   * stairs or vent on their way to `targetRoom` (or the nearest one).
+   * stairs or chute on their way to `targetRoom` (or the nearest one).
    */
   private placeGlyphs(targetRoom = this.house.boardRoom) {
     if (!this.tutorial) return this.clearGlyphs();
@@ -382,10 +374,10 @@ export class GameScene extends Phaser.Scene {
         [x, y, btn, verb] = [e.climb.x0, e.climb.y0 - 22, 'up', e.climb.kind === 'stairs' ? 'stairs' : 'climb'];
       } else if (e.kind === 'climbDown' && e.climb) {
         [x, y, verb] = [e.climb.x1, e.climb.y1 - 22, 'down'];
-      } else if (e.kind === 'vent') {
-        const v = this.house.vents.find((vv) => vv.ax === e!.x || vv.bx === e!.x);
-        y = (v ? (v.ax === e.x ? v.ay : v.by) : this.house.roomRect(e.from)!.bottom) - 22;
-        verb = 'vent';
+      } else if (e.kind === 'chute') {
+        // No button: just walk onto the hatch. Sit the prompt above its sign.
+        y = this.house.roomRect(e.from)!.bottom - 44;
+        verb = 'chute';
       } else {
         y = this.house.roomRect(e.from)!.bottom - 22;
       }
@@ -652,7 +644,7 @@ export class GameScene extends Phaser.Scene {
         this.panel.showChoices(dec.options.map((o) => o.to), pid);
         break;
       case 'shop':
-        this.tip('shop', 'Shop: items help on the board, perks in minigames.');
+        this.tip('shop', 'Shop: items help you on the board.');
         title = `Shop - you have ${this.state.players[pid].coins} coins`;
         labels = [...dec.options.map((o) => `${SHOP_BY_ID[o.id].name} ${o.price}c - ${SHOP_BY_ID[o.id].blurb}`), 'Leave'];
         values = [...dec.options.map((o) => o.id), null];
@@ -855,8 +847,6 @@ export class GameScene extends Phaser.Scene {
     if (plan.card === 'gravity') plan.rooms.forEach((r) => c.flippedRooms.add(r));
     const goal: GoalSystem = createGoal(c, plan);
     const mgSystems = [hazard, goal].filter(Boolean) as System[];
-    this.springSeats = new Set(this.state.players.filter((p) => p.perks.includes('springBoots')).map((p) => p.id));
-    this.headStartSeats = new Set(this.state.players.filter((p) => p.perks.includes('headStart')).map((p) => p.id));
     // Team colour markers above heads.
     const markers = this.avatars.map((av, i) =>
       this.add
@@ -873,7 +863,6 @@ export class GameScene extends Phaser.Scene {
     this.systems.push(...mgSystems);
     this.centerText.setText('GO!');
     sfx('select');
-    this.mgStart = this.time.now;
     this.botGoalFn = (i) => goal.botGoal(i);
     this.avatarsActive = true;
     if (this.tutorial && this.state.round <= 1) {
@@ -887,10 +876,20 @@ export class GameScene extends Phaser.Scene {
       const gd = GOALS.find((g) => g.id === plan.goal)!;
       this.tip('goal', `${gd.name}: ${gd.blurb}`);
     }
+    // Group score: how well the group played the goal, and how little trouble
+    // this round's hazard caused (hits, time in the dark/flipped, coins stolen).
+    // Settle uses the final value; the meter shows it live.
+    const groupNow = () => 0.6 * goal.groupScore() + 0.4 * (1 - (hazard ? hazard.trouble() : 0));
+    const meter = plan.card ? new ContainmentMeter(this, CARDS[plan.card].containBar) : null;
+    let meterAt = -1e9;
     const secs = minigameSeconds(plan.goal);
     const end = this.time.now + secs * 1000;
     await this.waitUntil(() => {
       followMarkers();
+      if (meter && this.time.now - meterAt >= 250) {
+        meterAt = this.time.now;
+        meter.set(groupNow());
+      }
       const left = Math.ceil((end - this.time.now) / 1000);
       const sc = goal.scores().map((v, i) => `${this.state.players[i].name.slice(0, 5)} ${Math.round(v * 10) / 10}`).join('  ');
       this.centerText.setText(`${goal.hud()}  ${left}s   ${sc}`);
@@ -901,15 +900,11 @@ export class GameScene extends Phaser.Scene {
     await this.banner('FINISH!', 900, '#ffd040');
     markers.forEach((m) => m.destroy());
     const scores = goal.scores();
-    // Group score: how well the group played the goal, and how little trouble
-    // this round's hazard caused (hits, time in the dark/flipped, coins stolen).
-    const trouble = hazard ? hazard.trouble() : 0;
-    const groupScore = 0.6 * goal.groupScore() + 0.4 * (1 - trouble);
+    const groupScore = groupNow();
+    meter?.destroy();
     const coinDelta = [...c.coinDelta];
     this.systems = this.systems.filter((s) => !mgSystems.includes(s));
     mgSystems.forEach((s) => s.destroy());
-    this.springSeats.clear();
-    this.headStartSeats.clear();
     c.coinDelta.fill(0);
 
     const coinsBefore = this.state.players.map((p) => p.coins);
@@ -918,7 +913,7 @@ export class GameScene extends Phaser.Scene {
     const objs: Phaser.GameObjects.GameObject[] = [];
     this.toaster.setPosition(200, 226);
     objs.push(text(this, 240, 50, 'RESULTS', 10, '#ffd040').setOrigin(0.5, 0));
-    objs.push(text(this, 68, 66, 'rank  player  score', 8, '#9a90b8'), text(this, 212, 66, 'coins', 8, '#9a90b8'));
+    objs.push(text(this, 68, 66, 'rank  player  score', 8, '#9a90b8'), text(this, 212, 66, 'coins', 8, '#9a90b8'), text(this, 352, 66, 'bonus', 8, '#9a90b8'));
     const icons = this.add.graphics().setDepth(91);
     objs.push(icons);
     const order = this.state.players.map((_, i) => i).sort((a, b) => rep.ranks[a] - rep.ranks[b]);
@@ -934,6 +929,8 @@ export class GameScene extends Phaser.Scene {
       drawIcon(icons, 'coin', 212, y0 + 2);
       objs.push(text(this, 222, y0, `${before} → ${after}`, 8, '#ffe08a'));
       objs.push(text(this, 272, y0, `${d >= 0 ? '+' : ''}${d}${stolen}`, 8, d > 0 ? '#80e080' : d < 0 ? '#ff8060' : '#c0b0e0'));
+      const st = rep.steps[i];
+      objs.push(text(this, 352, y0, st > 0 ? `+${st} space${st > 1 ? 's' : ''}` : '-', 8, st > 0 ? '#80d0ff' : '#6a6088'));
     });
     let y = 132;
     objs.push(text(this, 68, y, `Group score: ${Math.round(groupScore * 100)}%`, 8, '#c0b0e0'));
@@ -1002,5 +999,45 @@ export class GameScene extends Phaser.Scene {
       () => this.anyHumanConfirm() || Phaser.Input.Keyboard.JustDown(enter) || (allBots && this.time.now - shownAt > 8000),
     );
     this.scene.start('title');
+  }
+}
+
+/**
+ * Live containment meter for minigames with a hazard: the group score that
+ * settle will use, against the containment bar. Sits top-right, under the HUD
+ * and clear of the toasts and the touch buttons.
+ */
+class ContainmentMeter {
+  private static readonly X = 402;
+  private static readonly Y = 30;
+  private static readonly W = 72;
+  private label: Phaser.GameObjects.Text;
+  private gfx: Phaser.GameObjects.Graphics;
+  private value = -1;
+  constructor(scene: Phaser.Scene, private bar: number) {
+    const { X, Y } = ContainmentMeter;
+    this.label = text(scene, X, Y, 'CONTAINMENT', 8, '#c0b0e0').setDepth(97);
+    this.gfx = scene.add.graphics().setDepth(96);
+    this.set(0);
+  }
+  set(v: number) {
+    v = Math.max(0, Math.min(1, v));
+    if (Math.abs(v - this.value) < 0.005) return;
+    this.value = v;
+    const { X, Y, W } = ContainmentMeter;
+    const y = Y + 11;
+    const ok = v >= this.bar;
+    const g = this.gfx.clear();
+    // Dark backing so it reads over any room.
+    g.fillStyle(0x0c0814, 0.8).fillRect(X - 3, Y - 1, W + 6, 20);
+    g.fillStyle(0x2a1a3a, 1).fillRect(X, y, W, 5);
+    g.fillStyle(ok ? 0x5cc85a : 0xe8904a, 1).fillRect(X, y, Math.round(W * v), 5);
+    // The bar line: the group score needed to contain the hazard.
+    g.fillStyle(0xffffff, 1).fillRect(X + Math.round(W * this.bar), y - 2, 1, 9);
+    this.label.setColor(ok ? '#80e080' : '#ffb080');
+  }
+  destroy() {
+    this.label.destroy();
+    this.gfx.destroy();
   }
 }

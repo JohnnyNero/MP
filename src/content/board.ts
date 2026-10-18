@@ -111,7 +111,16 @@ export const REPAIR_MAX_COST = 14;
 export const REPAIR_BONUS_STEPS = 2;
 export const ROUND_CAP = 15;
 export const MAX_ITEMS = 3;
-export const MAX_PERKS = 2;
 export const FIRST_ARRIVAL_BONUS = 2;
 /** Last place on the board rolls d6 + this. */
 export const LAST_PLACE_ROLL_BONUS = 1;
+/**
+ * Bonus board spaces for minigame placement, walked at the start of the next
+ * board turn. Tuned with the balance sim: every step handed out here shortens
+ * the game (FFA 1st +3 / 2nd +1 took the average from ~12.6 to ~9.5 rounds),
+ * so these are kept small to hold games at about 12 rounds.
+ */
+export const FFA_STEPS = [2]; // by FFA rank (1st, 2nd, ...); missing = 0. Ties share the higher reward.
+export const TEAM_2V2_STEPS = 1; // each winner
+export const SOLO_WIN_STEPS = 2; // 1v3: the solo player wins
+export const TRIO_WIN_STEPS = 0; // 1v3: each member of the winning trio

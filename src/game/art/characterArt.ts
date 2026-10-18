@@ -340,14 +340,6 @@ function makeHazards(scene: Phaser.Scene) {
     w: '#fff4d0',
   });
 
-  // Floor vent grille. 12x5.
-  tex(scene, 'vent', ['kkkkkkkkkkkk', 'kLdLdLdLdLLk', 'kmdmdmdmdmmk', 'kmmmmmmmmmmk', 'kkkkkkkkkkkk'], {
-    k: OUTLINE,
-    L: '#b8c0d8',
-    m: '#6a7090',
-    d: '#1a1a2a',
-  });
-
   // Water surface tile (tiles horizontally). 8x4.
   tex(scene, 'water', ['.lw..lw.', 'lbbllbbl', 'bbbbbbbb', 'BbBbBbBb'], { l: '#8ad8ff', w: '#ffffff', b: '#3a8ae0', B: '#2a5ab0' });
 

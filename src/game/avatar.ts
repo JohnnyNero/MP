@@ -1,17 +1,18 @@
 import Phaser from 'phaser';
-import { CLIMB_SPEED, GRAVITY, JUMP_V, RUN_SPEED, SPRING_JUMP_V, type Climbable } from './config';
-import type { HouseView } from './houseView';
+import { CLIMB_SPEED, GRAVITY, JUMP_V, RUN_SPEED, type Climbable } from './config';
+import type { Chute, HouseView } from './houseView';
+import { sfx } from './sfx';
 import type { VirtualPad } from './input';
 
 /** Avatar frame height and the origin row (7px above the feet). */
 const SPR_H = 18;
 const SPR_ORIGIN_Y = SPR_H - 7;
+/** Speed through a laundry chute (px/s). */
+const CHUTE_SPEED = 420;
 
 export interface AvatarMods {
   /** Rooms where gravity is inverted (Gravity Flip hazard). */
   flippedRooms: Set<string>;
-  speedMul: number;
-  springBoots: boolean;
 }
 
 export class Avatar {
@@ -26,7 +27,9 @@ export class Avatar {
   slow = 1; // per-frame slow from hazards (reset each frame)
   room: string | undefined;
   flipped = false;
-  private ventCooldown = 0;
+  /** Riding a laundry chute: the chute and the distance travelled along its pipe. */
+  chute: Chute | null = null;
+  private chuteD = 0;
   private runFrame = 0;
   private bodyFlipped = false;
 
@@ -65,7 +68,7 @@ export class Avatar {
 
   /** Returns true if the hit landed. */
   hit(now: number, knockX = 0, stunMs = 1100): boolean {
-    if (now < this.invulnUntil) return false;
+    if (now < this.invulnUntil || this.chute) return false;
     this.hits += 1;
     this.stunnedUntil = now + stunMs;
     this.invulnUntil = now + stunMs + 700;
@@ -76,6 +79,7 @@ export class Avatar {
   }
 
   teleport(x: number, y: number) {
+    if (this.chute) this.leaveChute();
     this.climbing = null;
     this.body.allowGravity = true;
     this.body.reset(x, y);
@@ -97,7 +101,7 @@ export class Avatar {
       this.body.setOffset(4, this.flipped ? 0 : SPR_H - 13);
     }
 
-    let speed = RUN_SPEED * mods.speedMul * this.slow;
+    let speed = RUN_SPEED * this.slow;
     if (tags.includes('overgrown')) speed *= 0.65;
     this.slow = 1;
 
@@ -106,9 +110,23 @@ export class Avatar {
     const frozen = now < this.frozenUntil;
     this.sprite.setTint(0xffffff);
 
+    if (this.chute) {
+      this.updateChute(dt);
+      return;
+    }
     if (this.climbing) {
       this.updateClimb(pad, dt, stunned);
       return;
+    }
+
+    // Laundry chutes: step (or land) on an open hatch and you drop in.
+    if (!this.flipped && this.body.velocity.y >= 0) {
+      for (const c of house.chutes) {
+        if (Math.abs(this.x - c.hatchX) < 6 && Math.abs(this.feetY - c.hatchY) < 4) {
+          this.enterChute(c);
+          return;
+        }
+      }
     }
 
     if (stunned) {
@@ -136,7 +154,7 @@ export class Avatar {
     }
 
     if (pad.jump && this.onGround) {
-      const v = mods.springBoots ? SPRING_JUMP_V : JUMP_V;
+      const v = JUMP_V;
       this.body.setVelocityY(this.flipped ? v : -v);
     }
 
@@ -154,23 +172,69 @@ export class Avatar {
         }
       }
     }
+  }
 
-    // Vents: press down while standing on one.
-    this.ventCooldown -= dt;
-    if (pad.down && this.onGround && this.ventCooldown <= 0) {
-      for (const v of house.vents) {
-        if (Math.abs(this.x - v.ax) < 8 && Math.abs(this.feetY - v.ay) < 5) {
-          this.teleport(v.bx, v.by - 8);
-          this.ventCooldown = 500;
-          break;
-        }
-        if (Math.abs(this.x - v.bx) < 8 && Math.abs(this.feetY - v.by) < 5) {
-          this.teleport(v.ax, v.ay - 8);
-          this.ventCooldown = 500;
-          break;
-        }
+  private enterChute(c: Chute) {
+    this.chute = c;
+    this.chuteD = 0;
+    this.climbing = null;
+    this.body.setVelocity(0, 0);
+    // The body sits out the ride: no gravity, no collisions, no overlaps.
+    this.body.enable = false;
+    this.sprite.setAlpha(1).setScale(0.55).setDepth(-13);
+    this.setFrame('fall');
+    sfx('step');
+  }
+
+  /** Slide the shrunken, spinning avatar along the pipe (over the pipe art, under lamps and stairs). */
+  private updateChute(dt: number) {
+    const path = this.chute!.path;
+    this.chuteD += (CHUTE_SPEED * dt) / 1000;
+    let d = this.chuteD;
+    for (let i = 1; i < path.length; i++) {
+      const [ax, ay] = path[i - 1];
+      const [bx, by] = path[i];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (d <= len) {
+        const t = d / len;
+        this.sprite.setPosition(ax + (bx - ax) * t, ay + (by - ay) * t);
+        this.sprite.setAngle(this.sprite.angle + dt * 1.2);
+        return;
       }
+      d -= len;
     }
+    this.exitChute();
+  }
+
+  /** Pop out of the mouth with a little bounce. */
+  private exitChute() {
+    const [mx, my] = this.chute!.path[this.chute!.path.length - 1];
+    const scene = this.sprite.scene;
+    this.leaveChute();
+    this.body.reset(mx, my + 6);
+    this.body.setVelocity(this.sprite.flipX ? -50 : 50, -95);
+    this.sprite.setScale(1.35, 0.65);
+    scene.tweens.add({ targets: this.sprite, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
+    for (let i = 0; i < 5; i++) {
+      const puff = scene.add.image(mx, my + 1, 'spark').setDepth(11).setAlpha(0.9);
+      scene.tweens.add({
+        targets: puff,
+        x: mx + (i - 2) * 7,
+        y: my + 4 + Math.abs(i - 2) * 2,
+        alpha: 0,
+        scale: 0.4,
+        duration: 320,
+        onComplete: () => puff.destroy(),
+      });
+    }
+    sfx('whoosh');
+  }
+
+  private leaveChute() {
+    this.chute = null;
+    this.body.enable = true;
+    this.body.allowGravity = true;
+    this.sprite.setScale(1).setAngle(0).setDepth(10);
   }
 
   private startClimb(c: Climbable, t: number) {

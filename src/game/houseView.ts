@@ -4,6 +4,7 @@ import type { DerivedHouse } from '../core/house';
 import type { RoomTag } from '../core/types';
 import {
   BOARD_X,
+  CHUTE_GEOMETRY,
   CLIMB_GEOMETRY,
   COL_X,
   DOOR_H,
@@ -11,7 +12,6 @@ import {
   ROOF_Y,
   ROOM_INNER_H,
   SLAB,
-  VENT_GEOMETRY,
   WALL,
   type Climbable,
 } from './config';
@@ -22,6 +22,7 @@ import {
   HouseCanvas,
   SPRITES,
   blitSprite,
+  chutePipeTexture,
   drawRoomDamage,
   type Px,
   ladderTexture,
@@ -40,12 +41,15 @@ export interface RoomRect {
   bottom: number; // floor surface
 }
 
-export interface Vent {
+/** An open, one-way laundry chute: step on the hatch, pop out of the mouth. */
+export interface Chute {
   id: string;
-  ax: number;
-  ay: number;
-  bx: number;
-  by: number;
+  upper: string;
+  lower: string;
+  hatchX: number;
+  hatchY: number; // floor surface of the upper room
+  /** Pipe centerline from the hatch to the mouth (last point). */
+  path: [number, number][];
 }
 
 export interface Hole {
@@ -60,7 +64,7 @@ export interface Hole {
 export interface NavEdge {
   from: string;
   to: string;
-  kind: 'door' | 'climbUp' | 'climbDown' | 'vent' | 'drop';
+  kind: 'door' | 'climbUp' | 'climbDown' | 'chute' | 'drop';
   x: number; // where to stand / walk to in `from`
   climb?: Climbable;
 }
@@ -96,7 +100,7 @@ const ROOM_DECOR: Record<string, Decor[]> = {
   living: [
     { key: 'rug', x: 240 },
     { key: 'tv', x: 180 },
-    { key: 'clock', x: 180, y: 44, wall: true },
+    { key: 'clock', x: 194, y: 44, wall: true },
     { key: 'frame-port', x: 214, y: 38, wall: true },
     { key: 'frame-land', x: 286, y: 36, wall: true },
     { key: 'floorlamp', x: 262 },
@@ -171,7 +175,7 @@ export class HouseView {
   solids: Phaser.Physics.Arcade.StaticGroup;
   climbables: Climbable[] = [];
   blockedClimbables: Climbable[] = [];
-  vents: Vent[] = [];
+  chutes: Chute[] = [];
   holes: Hole[] = [];
   rooms: RoomRect[];
   nav: NavEdge[] = [];
@@ -385,22 +389,29 @@ export class HouseView {
       this.nav.push({ from: c.b, to: c.a, kind: 'climbDown', x: cl.x1, climb: cl });
     }
 
-    // Vents.
+    // Laundry chutes: pipe, open hatch, sign, arrow and glow (a few objects each).
     for (const c of HOUSE.connections) {
-      const v = VENT_GEOMETRY[c.id];
-      if (!v) continue;
-      const ay = FLOOR_Y[ROOM_BY_ID[c.a].floor];
-      const by = FLOOR_Y[ROOM_BY_ID[c.b].floor];
-      this.add(s.add.image(v.ax, ay - 3, 'vent').setDepth(-5));
-      this.add(s.add.image(v.bx, by - 3, 'vent').setDepth(-5));
+      const g = CHUTE_GEOMETRY[c.id];
+      if (!g) continue;
+      const hy = FLOOR_Y[ROOM_BY_ID[c.b].floor];
+      const pipe = chutePipeTexture(s, c.id, g.hatchX, g.path);
+      this.add(s.add.image(pipe.x, pipe.y, pipe.key).setOrigin(0, 0).setDepth(-13.5));
+      this.add(s.add.image(g.hatchX - 9, hy - 14, 'chute-hatch').setOrigin(0, 0).setDepth(-5));
+      const sign = this.add(s.add.image(g.hatchX + 7, hy - 30, 'chute-sign').setDepth(-12));
       if (blocked.has(c.id)) {
-        this.add(s.add.image(v.ax, ay - 8, 'vine').setDepth(4));
-        this.add(s.add.image(v.bx, by - 8, 'vine').setDepth(4));
+        // Vines grow over the hatch: it's shut.
+        sign.setAlpha(0.6);
+        for (let dx = -6; dx <= 6; dx += 6) this.add(s.add.image(g.hatchX + dx, hy - 3, 'vine').setDepth(4));
         continue;
       }
-      this.vents.push({ id: c.id, ax: v.ax, ay, bx: v.bx, by });
-      this.nav.push({ from: c.a, to: c.b, kind: 'vent', x: v.ax });
-      this.nav.push({ from: c.b, to: c.a, kind: 'vent', x: v.bx });
+      // Glow rises from behind the hatch so its dark mouth stays crisp.
+      const glow = this.add(s.add.image(g.hatchX + 1, hy - 6, 'chute-glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(-5.2).setAlpha(0.35));
+      this.tweens.push(s.tweens.add({ targets: glow, alpha: 0.85, scaleY: 1.25, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' }));
+      const arrow = this.add(s.add.image(g.hatchX, hy - 17, 'chute-arrow').setDepth(-4.6));
+      this.tweens.push(s.tweens.add({ targets: arrow, y: hy - 13, duration: 380, yoyo: true, repeat: -1, ease: 'Quad.easeIn' }));
+      this.chutes.push({ id: c.id, upper: c.b, lower: c.a, hatchX: g.hatchX, hatchY: hy, path: g.path });
+      // One way only: bots treat it like a drop.
+      this.nav.push({ from: c.b, to: c.a, kind: 'chute', x: g.hatchX });
     }
 
     // Holes are one-way drops.
@@ -455,7 +466,7 @@ export class HouseView {
 
   // ------------------------------------------------------------ damage
 
-  /** Room-local rects the damage overlay must leave clear (doors, climbables, vents, board, holes). */
+  /** Room-local rects the damage overlay must leave clear (doors, climbables, chute, board, holes). */
   private keepClear(r: RoomRect): KeepClear[] {
     const W = r.x1 - r.x0;
     const H = r.bottom - r.top;
@@ -478,10 +489,11 @@ export class HouseView {
       }
     }
     for (const c of HOUSE.connections) {
-      const v = VENT_GEOMETRY[c.id];
-      if (!v) continue;
-      if (c.a === r.id) k.push({ x: v.ax - r.x0 - 10, y: H - 12, w: 20, h: 12 });
-      if (c.b === r.id) k.push({ x: v.bx - r.x0 - 10, y: H - 12, w: 20, h: 12 });
+      const g = CHUTE_GEOMETRY[c.id];
+      if (!g) continue;
+      if (c.b === r.id) k.push({ x: g.hatchX - r.x0 - 12, y: H - 42, w: 32, h: 42 });
+      const [mx, my] = g.path[g.path.length - 1];
+      if (c.a === r.id) k.push({ x: mx - r.x0 - 12, y: my - r.top - 34, w: 24, h: 40 });
     }
     if (r.id === this.boardRoom) k.push({ x: BOARD_X[r.id] - r.x0 - 26, y: H - 36, w: 52, h: 36 });
     for (const h of this.holes) {

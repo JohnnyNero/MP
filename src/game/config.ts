@@ -19,7 +19,6 @@ export const DOOR_H = 30;
 export const GRAVITY = 620;
 export const RUN_SPEED = 82;
 export const JUMP_V = 215;
-export const SPRING_JUMP_V = 265;
 export const CLIMB_SPEED = 60;
 
 export const MINIGAME_SECONDS = 40;
@@ -53,8 +52,24 @@ export const CLIMB_GEOMETRY: Record<string, Omit<Climbable, 'id' | 'lower' | 'up
   'l-kids-storage': { kind: 'ladder', x0: 344, y0: FLOOR_Y[1], x1: 344, y1: FLOOR_Y[2] },
 };
 
-export const VENT_GEOMETRY: Record<string, { ax: number; bx: number }> = {
-  'v-living-attic': { ax: 196, bx: 40 },
+/**
+ * One-way laundry chutes. `hatchX` is the open hatch in the upper room's floor;
+ * `path` is the pipe centerline from the hatch to the mouth (last point, where
+ * you pop out). Segments after the first are axis-aligned.
+ */
+export const CHUTE_GEOMETRY: Record<string, { hatchX: number; path: [number, number][] }> = {
+  // Down the attic and bedroom's outer wall, along the kitchen ceiling,
+  // through the wall above the door and out over the living room.
+  'c-attic-living': {
+    hatchX: 16,
+    path: [
+      [16, FLOOR_Y[2] - 1],
+      [7, FLOOR_Y[2] + 7],
+      [7, 206],
+      [172, 206],
+      [172, 220],
+    ],
+  },
 };
 
 export const BOARD_X: Record<string, number> = {

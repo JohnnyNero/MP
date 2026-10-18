@@ -406,7 +406,7 @@ const ICON_PAL: Record<string, number> = {
   n: 0xb87a3a,
 };
 
-/** Small HUD icons (coins, items, perks), drawn with an ink outline. */
+/** Small HUD icons (coins, items), drawn with an ink outline. */
 export const ICONS: Record<string, string[]> = {
   coin: ['.YYyy.', 'YYyyyo', 'Yyykyo', 'Yyykyo', 'yyyyoo', '.oooo.'],
   doubleDie: ['wwww...', 'wkkw...', 'wwww...', '...wwww', '...wkkw', '...wwww'],
@@ -414,8 +414,6 @@ export const ICONS: Record<string, string[]> = {
   pushBack: ['..r....', '.rr....', 'rrrrrrr', '.rr....', '..r....'],
   warpSwap: ['....b..', 'bbbbbb.', '....b..', '..p....', '.pppppp', '..p....'],
   respin: ['.ppp.', 'pywyp', 'pwkwp', 'pywyp', '.ppp.'],
-  headStart: ['...yy', '..yy.', '.yyyy', '..yy.', '.yy..', 'yy...'],
-  springBoots: ['.nn...', '.nn...', '.nnnnn', 'nnnnnn', '.s.s.s'],
 };
 
 /** Draw an icon into a Graphics, top-left at (x, y). Unknown keys draw nothing. */

@@ -35,7 +35,7 @@ export type RoomTag =
   | 'cluttered'
   | 'monkeys';
 
-export type ConnectionKind = 'door' | 'stairs' | 'ladder' | 'vent' | 'hole';
+export type ConnectionKind = 'door' | 'stairs' | 'ladder' | 'chute' | 'hole';
 
 export interface RoomDef {
   id: string;
@@ -101,11 +101,8 @@ export interface GoalDef {
 }
 
 export type ItemId = 'doubleDie' | 'reroll' | 'pushBack' | 'warpSwap' | 'respin';
-export type PerkId = 'headStart' | 'springBoots';
-
 export interface ShopEntry {
-  id: ItemId | PerkId;
-  kind: 'item' | 'perk';
+  id: ItemId;
   name: string;
   blurb: string;
   price: number;
@@ -122,7 +119,8 @@ export interface PlayerState {
   space: string;
   trail: string[]; // spaces visited, most recent last (for push-back)
   items: ItemId[];
-  perks: PerkId[];
+  /** Bonus spaces won in the last minigame, walked at the start of the next board turn. */
+  pendingSteps: number;
   color: LandColor;
 }
 
@@ -189,6 +187,8 @@ export interface MinigameResult {
 export interface SettleReport {
   ranks: number[]; // 1 = best
   payouts: number[];
+  /** Bonus board spaces won by placement (added to each player's pendingSteps). */
+  steps: number[];
   contained: boolean;
   newEffect: ActiveEffect | null;
   spread: ActiveEffect[];

@@ -68,8 +68,9 @@ export class BotBrain {
             y = -1;
           } else if (e.kind === 'climbDown') {
             y = 1;
-          } else if (e.kind === 'vent') {
-            y = this.toggle ? 1 : 0;
+          } else if (e.kind === 'chute') {
+            // Nudge onto the hatch; stepping on it drops us in.
+            x = Math.sign(dx) || (this.toggle ? 1 : -1);
           } else if (e.kind === 'drop') {
             x = this.toggle ? 1 : -1;
           }
