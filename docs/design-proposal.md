@@ -355,6 +355,21 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 ---
 
+## 12b. Destructible rooms (in progress)
+
+**Decided:**
+- **Target feel:** physical destruction like *The Finals*. Walls and floors break into chunks, so the house art is built from small chunks that can be removed one at a time.
+- **Effect on play:** damage both **opens routes** (holes in walls and floors become new passages) and **closes routes** (rubble blocks doors, ladders and stairs break).
+- **Max damage:** a room at level 3 stays wrecked. It doesn't collapse further, and there is no house-wide loss.
+- **Repair:** paying at a Repair space clears the hazard **and** restores the room.
+- **Lingering hazards:** uncontained hazards run at full strength every round until repaired.
+
+**Deferred:**
+- What causes damage (players, hazards live, cards, lingering).
+- Collision rules for broken chunks.
+
+**For now:** `DerivedHouse.damage` (0–3 per room) is derived from lingering effects and drawn as visual wreckage only.
+
 ## 13. Open questions
 
 All of the first round of open questions are resolved. Remaining work is
