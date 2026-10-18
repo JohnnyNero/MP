@@ -1,7 +1,6 @@
 // The house turn: roulette over the drawn cards, target rooms, format and goal.
 import { CARDS, GOALS } from '../content/cards';
-import { HOUSE } from '../content/house';
-import { roomsOnFloor } from './house';
+import { floorLevels, highestRooms, lowestRooms, roomsOnFloor } from './house';
 import { pick, rand, randInt } from './rng';
 import { log } from './setup';
 import type { Format, GameState, GoalDef, GoalId, HazardId, MinigamePlan } from './types';
@@ -23,9 +22,11 @@ export function computeFormat(state: GameState): { format: Format; teams: number
 
 export function targetRooms(state: GameState, card: HazardId): string[] {
   const t = CARDS[card].targeting;
-  if (t.kind === 'floor') return roomsOnFloor(t.floor);
-  if (t.kind === 'randomFloor') return roomsOnFloor(randInt(state.rng, 'house', 3));
-  return [pick(state.rng, 'house', HOUSE.rooms).id];
+  const house = state.house;
+  if (t.kind === 'lowest') return lowestRooms(house);
+  if (t.kind === 'highest') return highestRooms(house);
+  if (t.kind === 'randomFloor') return roomsOnFloor(house, pick(state.rng, 'house', floorLevels(house)));
+  return [pick(state.rng, 'house', house.rooms).id];
 }
 
 /** Goals that can be played in this format with this hazard (the curated pairs). */

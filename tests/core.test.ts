@@ -28,7 +28,8 @@ import {
   validGoals,
   type TurnEvent,
 } from '../src/core/game';
-import { deriveHouse, reachable } from '../src/core/house';
+import { HOUSE } from '../src/content/house';
+import { deriveHouse, highestRooms, lowestRooms, neighbours, reachable } from '../src/core/house';
 import { fakeMinigame, runTurnSync, simulateGame } from '../src/core/sim';
 import type { Format, HazardId, MinigamePlan } from '../src/core/types';
 
@@ -95,6 +96,7 @@ describe('turns', () => {
 describe('house', () => {
   it('derives tags and blocked connections from effects only', () => {
     const s = newGame(4, four);
+    s.house = HOUSE;
     s.effects.push({ uid: 1, card: 'vines', rooms: ['living'], round: 1, blockedConnection: 'd-kitchen-living' });
     const h = deriveHouse(s);
     expect(h.tags.living).toContain('overgrown');
@@ -104,11 +106,28 @@ describe('house', () => {
     expect(deriveHouse(s).blocked.size).toBe(0);
   });
   it('base house is fully connected', () => {
-    expect(reachable('living', deriveHouse({ effects: [] })).size).toBe(9);
+    expect(reachable('living', deriveHouse({ effects: [], house: HOUSE })).size).toBe(HOUSE.rooms.length);
   });
   it('meteor holes add a connection', () => {
-    const h = deriveHouse({ effects: [{ uid: 1, card: 'meteor', rooms: ['study'], round: 1, hole: { from: 'study', to: 'bathroom' } }] });
-    expect(h.connections.some((c) => c.kind === 'hole')).toBe(true);
+    const h = deriveHouse({
+      house: HOUSE,
+      effects: [{ uid: 1, card: 'meteor', rooms: ['study'], round: 1, hole: { from: 'study', to: 'bathroom', colX: 3, frac: 0.3 } }],
+    });
+    const hole = h.connections.find((c) => c.kind === 'hole')!;
+    expect(hole).toMatchObject({ a: 'bathroom', b: 'study', colX: 3, frac: 0.3 });
+    expect(h.def).toBe(HOUSE);
+  });
+  it('one-way connections only go one way', () => {
+    const conns = HOUSE.connections.filter((c) => c.id === 'c-bedroom-kitchen');
+    expect(neighbours('bedroom', conns)).toEqual(['kitchen']);
+    expect(neighbours('kitchen', conns)).toEqual([]);
+    const tramp = [{ id: 't', kind: 'tramp' as const, a: 'kitchen', b: 'bedroom', colX: 0, frac: 0.5 }];
+    expect(neighbours('kitchen', tramp)).toEqual(['bedroom']);
+    expect(neighbours('bedroom', tramp)).toEqual([]);
+  });
+  it('flood hits the lowest level, meteors the rooms under the roof', () => {
+    expect(lowestRooms(HOUSE).sort()).toEqual(['boiler', 'cellar']);
+    expect(highestRooms(HOUSE).sort()).toEqual(['attic', 'bedroom', 'nursery', 'study']);
   });
 });
 
@@ -123,6 +142,13 @@ describe('lingering effects', () => {
     expect(Object.values(h.tags).flat().length).toBeGreaterThan(5);
     const holes = s.effects.filter((e) => e.hole).map((e) => e.hole!.from);
     expect(new Set(holes).size).toBe(holes.length);
+    for (const e of s.effects.filter((x) => x.hole)) {
+      const from = s.house.rooms.find((r) => r.id === e.hole!.from)!;
+      const to = s.house.rooms.find((r) => r.id === e.hole!.to)!;
+      expect(to.gy).toBe(from.gy + from.gh);
+      expect(e.hole!.colX).toBeGreaterThanOrEqual(Math.max(from.gx, to.gx));
+      expect(e.hole!.colX).toBeLessThan(Math.min(from.gx + from.gw, to.gx + to.gw));
+    }
   });
 });
 

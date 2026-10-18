@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CARDS, GOALS, SHOP_BY_ID } from '../../content/cards';
+import { FEATURES, type FeatureId } from '../../content/houseThemes';
 import { distToFinish } from '../../core/board';
 import { botDecide } from '../../core/bots';
 import {
@@ -17,7 +18,7 @@ import {
 } from '../../core/game';
 import { deriveHouse, roomName } from '../../core/house';
 import { makeRandom } from '../../core/rng';
-import type { GameState, GoalId, HazardId, MinigamePlan } from '../../core/types';
+import type { GameState, GoalId, Goofiness, HazardId, MinigamePlan } from '../../core/types';
 import { Avatar, type AvatarMods } from '../avatar';
 import { BoardPanel } from '../boardPanel';
 import { BotBrain, type BotGoal } from '../botBrain';
@@ -40,7 +41,22 @@ export interface SeatConfig {
 export interface GameSceneData {
   seats: SeatConfig[];
   seed: number;
+  /** 0 = Sensible, 1 = Silly, 2 = Nonsense house. */
+  goofiness?: Goofiness;
 }
+
+/** One-line how-to for each signature feature (tips and the intro). */
+const FEATURE_HOWTO: Record<FeatureId, string> = {
+  portal: 'press up at a painting to warp',
+  tramp: 'jump onto the bed to bounce upstairs',
+  chute: 'walk onto the hatch to drop down',
+  pole: 'hold down at the pole to slide down',
+  slide: 'step onto the slide to whizz down',
+  lift: 'press action in the hatch to ride',
+  bookcase: 'press action at the bookcase to spin through',
+  switch: 'press action at the switch: lights off!',
+  trapdoor: 'press action at the lever to drop the rug',
+};
 
 /** The guided first round runs once per session (page load). */
 let tutorialDone = false;
@@ -82,6 +98,8 @@ export class GameScene extends Phaser.Scene {
   private glyphs: Phaser.GameObjects.Container[] = [];
   private menuOpen = false;
   private glyphSig = '';
+  /** Rooms whose light switch is off (dark until switched back on). */
+  private lightsOff = new Set<string>();
 
   constructor() {
     super('game');
@@ -92,6 +110,7 @@ export class GameScene extends Phaser.Scene {
     this.state = newGame(
       data.seed,
       data.seats.map((s) => ({ name: s.name, isBot: s.isBot, difficulty: s.difficulty })),
+      data.goofiness ?? 1,
     );
     this.rnd = makeRandom(data.seed ^ 0x9e3779b9);
     // Debug: start with lingering effects, e.g. ?linger=fire,vines,meteor
@@ -114,6 +133,7 @@ export class GameScene extends Phaser.Scene {
     this.tipsShown = new Set();
     this.glyphs = [];
     this.menuOpen = false;
+    this.lightsOff = new Set();
     const tq = new URLSearchParams(location.search).get('tutorial');
     this.tutorial = tq === '1' || (tq !== '0' && !tutorialDone && data.seats.some((s) => !s.isBot));
   }
@@ -163,8 +183,14 @@ export class GameScene extends Phaser.Scene {
     this.lingering?.destroy();
     this.systems = this.systems.filter((s) => s !== this.lingering);
     this.house?.destroy();
-    this.house = new HouseView(this, deriveHouse({ effects }));
+    this.house = new HouseView(this, deriveHouse({ effects, house: this.state.house }));
     this.ctx.house = this.house;
+    this.house.onSwitch = (room) => {
+      if (this.lightsOff.has(room)) this.lightsOff.delete(room);
+      else this.lightsOff.add(room);
+      this.house.setSwitchArt(room, !this.lightsOff.has(room));
+    };
+    for (const room of this.house.switchRooms) this.house.setSwitchArt(room, !this.lightsOff.has(room));
     this.lingering = new LingeringSystem(this.ctx, effects);
     this.systems.unshift(this.lingering);
     if (this.avatars.length) this.setCollider();
@@ -189,10 +215,8 @@ export class GameScene extends Phaser.Scene {
     if (!room) return false;
     const xs: number[] = [];
     for (const e of this.house.nav) {
-      if (e.from !== room.id && e.to !== room.id) continue;
-      if (e.kind === 'door') xs.push(e.x);
-      else if (e.climb) xs.push(e.climb.x0, e.climb.x1);
-      else if (e.from === room.id) xs.push(e.x);
+      if (e.from === room.id) xs.push(e.x);
+      if (e.to === room.id) xs.push(e.toX);
     }
     return xs.some((x) => Math.abs(av.x - x) < EXIT_ZONE);
   }
@@ -245,6 +269,8 @@ export class GameScene extends Phaser.Scene {
       if (s === this.lingering && !this.avatarsActive) continue;
       s.update(dt);
     }
+    // Light switches flicked off: those rooms are dark (a hazard's darkness wins).
+    for (const room of this.lightsOff) if (!c.darkRooms.has(room)) c.darkRooms.set(room, 26);
 
     if (this.avatarsActive) {
       this.avatars.forEach((av, i) => {
@@ -354,7 +380,7 @@ export class GameScene extends Phaser.Scene {
    */
   private placeGlyphs(targetRoom = this.house.boardRoom) {
     if (!this.tutorial) return this.clearGlyphs();
-    const specs: { i: number; x: number; y: number; btn: 'up' | 'down'; verb: string }[] = [];
+    const specs: { i: number; x: number; y: number; btn: 'up' | 'down' | 'jump' | 'action' | null; verb: string }[] = [];
     this.seats.forEach((s, i) => {
       if (s.isBot) return;
       const av = this.avatars[i];
@@ -368,18 +394,29 @@ export class GameScene extends Phaser.Scene {
       if (!e) return;
       let x = e.x;
       let y: number;
-      let btn: 'up' | 'down' = 'down';
+      let btn: 'up' | 'down' | 'jump' | 'action' | null = 'down';
       let verb = 'drop';
+      const floor = this.house.roomRect(e.from)!.bottom;
+      y = floor - 22;
       if (e.kind === 'climbUp' && e.climb) {
         [x, y, btn, verb] = [e.climb.x0, e.climb.y0 - 22, 'up', e.climb.kind === 'stairs' ? 'stairs' : 'climb'];
       } else if (e.kind === 'climbDown' && e.climb) {
         [x, y, verb] = [e.climb.x1, e.climb.y1 - 22, 'down'];
       } else if (e.kind === 'chute') {
         // No button: just walk onto the hatch. Sit the prompt above its sign.
-        y = this.house.roomRect(e.from)!.bottom - 44;
-        verb = 'chute';
-      } else {
-        y = this.house.roomRect(e.from)!.bottom - 22;
+        [y, btn, verb] = [floor - 40, null, 'chute'];
+      } else if (e.kind === 'slide') {
+        [btn, verb] = [null, 'slide'];
+      } else if (e.kind === 'pole') {
+        verb = 'pole';
+      } else if (e.kind === 'portal') {
+        [y, btn, verb] = [floor - 40, 'up', 'warp'];
+      } else if (e.kind === 'tramp') {
+        [btn, verb] = ['jump', 'bounce'];
+      } else if (e.kind === 'lift') {
+        [y, btn, verb] = [floor - 32, 'action', 'ride'];
+      } else if (e.kind === 'bookcase') {
+        [y, btn, verb] = [floor - 38, 'action', 'spin'];
       }
       // Stack prompts for several humans at the same spot.
       const dup = specs.filter((g) => Math.abs(g.x - x) < 40 && Math.abs(g.y - y) < 20).length;
@@ -390,11 +427,22 @@ export class GameScene extends Phaser.Scene {
     this.clearGlyphs();
     this.glyphSig = sig;
     for (const sp of specs) {
-      const g = keycap(this, sp.x, sp.y, this.seats[sp.i].source, sp.btn, sp.verb);
+      const g = sp.btn
+        ? keycap(this, sp.x, sp.y, this.seats[sp.i].source, sp.btn, sp.verb)
+        : this.add.container(sp.x, sp.y, [text(this, 0, -1, `${sp.verb} v`, 8, '#ffe060').setOrigin(0.5, 0.5)]).setDepth(94);
       g.add(text(this, 0, -7, this.state.players[sp.i].name, 8, PLAYER_CSS[sp.i]).setOrigin(0.5, 1));
       this.tweens.add({ targets: g, y: g.y - 2, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
       this.glyphs.push(g);
     }
+  }
+
+  /** Player-facing names of this house's signature features. */
+  private featureNames(): string[] {
+    return this.state.house.features.map((f) => FEATURES[f as FeatureId]?.name).filter((n): n is string => !!n);
+  }
+
+  private roomName(id: string): string {
+    return roomName(this.state.house, id);
   }
 
   private popText(t: string, x: number, y: number, color = '#ffffff') {
@@ -403,9 +451,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async banner(t: string, ms = 1400, color = '#ffffff', sub = '') {
-    const g = panel(this, 90, 104, 300, sub ? 52 : 34).setDepth(98);
-    const a = text(this, 240, 112, t, 10, color).setOrigin(0.5, 0).setDepth(99);
     const b = sub ? text(this, 240, 132, sub, 8, '#c0b0e0', { align: 'center', wordWrap: { width: 280 } }).setOrigin(0.5, 0).setDepth(99) : null;
+    const g = panel(this, 90, 104, 300, b ? Math.max(52, 34 + Math.ceil(b.height)) : 34).setDepth(98);
+    const a = text(this, 240, 112, t, 10, color).setOrigin(0.5, 0).setDepth(99);
     await this.waitOrConfirm(ms);
     g.destroy();
     a.destroy();
@@ -415,7 +463,14 @@ export class GameScene extends Phaser.Scene {
   // ------------------------------------------------------------ main loop
 
   private async runGame() {
-    await this.banner('TABLETOP', 1800, '#ffd040', 'A cursed board game has spilled into the house.\nFirst to the end escapes. Find the board!');
+    const h = this.state.house;
+    const feats = this.featureNames().join(', ');
+    await this.banner(
+      'TABLETOP',
+      2600,
+      '#ffd040',
+      `A cursed board game has spilled into ${h.name}.\nFirst to the end escapes. Find the board!${feats ? `\nThis house has: ${feats}.` : ''}`,
+    );
     for (;;) {
       await this.regroup();
       await this.boardTurns();
@@ -442,6 +497,11 @@ export class GameScene extends Phaser.Scene {
     const firstRound = this.tutorial && roundNo === 1;
     if (firstRound) {
       this.time.delayedCall(1200, () => this.tip('race', 'Race to the board: arrival order = turn order.'));
+      const feats = (this.state.house.features as FeatureId[]).filter((f) => FEATURES[f]);
+      if (feats.length) {
+        this.time.delayedCall(1300, () => this.tip('house', `This house has: ${this.featureNames().join(', ')}`));
+        feats.forEach((f) => this.time.delayedCall(1400, () => this.tip(`feat-${f}`, `${FEATURES[f].name}: ${FEATURE_HOWTO[f]}.`)));
+      }
       this.placeGlyphs();
     }
     let glyphT = this.time.now;
@@ -653,7 +713,7 @@ export class GameScene extends Phaser.Scene {
       case 'repair':
         this.tip('repair', 'Repair spaces fix the house for everyone.');
         title = 'Repair the house? (helps everyone)';
-        labels = [...dec.options.map((o) => `${CARDS[o.card].name} in ${o.rooms.map(roomName).join(', ')} (${o.price}c)`), 'Skip'];
+        labels = [...dec.options.map((o) => `${CARDS[o.card].name} in ${o.rooms.map((id) => this.roomName(id)).join(', ')} (${o.price}c)`), 'Skip'];
         values = [...dec.options.map((o) => o.uid), null];
         backValue = null;
         break;
@@ -809,7 +869,7 @@ export class GameScene extends Phaser.Scene {
     const lines: [string, string][] = [];
     if (plan.card) {
       const c = CARDS[plan.card];
-      lines.push([`HAZARD: ${c.name} in ${plan.rooms.map(roomName).join(', ')}`, '#ff9a60']);
+      lines.push([`HAZARD: ${c.name} in ${plan.rooms.map((id) => this.roomName(id)).join(', ')}`, '#ff9a60']);
       lines.push([c.blurb, '#c0b0e0']);
     } else lines.push(['No hazard: just the house as it is.', '#c0b0e0']);
     lines.push([`GAME: ${goal.name} - ${goal.blurb}`, '#ffe060']);
@@ -941,14 +1001,14 @@ export class GameScene extends Phaser.Scene {
         objs.push(text(this, 68, y, `${name} was CONTAINED. The house is spared.`, 8, '#80e080'));
         sfx('win');
       } else {
-        objs.push(text(this, 68, y, `${name} LINGERS in ${plan.rooms.map(roomName).join(', ')}.`, 8, '#ff8060', { wordWrap: { width: 340 } }));
+        objs.push(text(this, 68, y, `${name} LINGERS in ${plan.rooms.map((id) => this.roomName(id)).join(', ')}.`, 8, '#ff8060', { wordWrap: { width: 340 } }));
         sfx('bad');
         this.tip('linger', 'Lingering hazards stay until someone repairs them.');
       }
       y += 12;
     }
     for (const s of rep.spread) {
-      objs.push(text(this, 68, y, `The fire spreads to the ${roomName(s.rooms[0])}!`, 8, '#ff8060'));
+      objs.push(text(this, 68, y, `The fire spreads to the ${this.roomName(s.rooms[0])}!`, 8, '#ff8060'));
       y += 12;
     }
     if (rep.houseWins) {

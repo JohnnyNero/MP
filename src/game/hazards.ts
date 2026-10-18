@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { ActiveEffect, HazardId } from '../core/types';
-import { FLOOR_Y, H, ROOF_Y, W } from './config';
+import { H, W } from './config';
 import { overlaps, type MGContext, type System } from './mgContext';
 
 // Each hazard has an intense form (the card in play this minigame) and the
@@ -78,20 +78,31 @@ class Flood implements System {
   private surface: Phaser.GameObjects.Rectangle;
   private level = 0;
   private under: number[];
-  constructor(private ctx: MGContext) {
-    this.water = ctx.scene.add.rectangle(W / 2, FLOOR_Y[0], 464, 0, 0x2a6ad0, 0.55).setOrigin(0.5, 1).setDepth(20);
-    this.surface = ctx.scene.add.rectangle(W / 2, FLOOR_Y[0], 464, 1, 0x9ad0ff, 0.9).setDepth(21);
+  /** Water fills the target rooms (the lowest level) from their shared floor. */
+  private floorY: number;
+  private x0: number;
+  private x1: number;
+  private maxLevel: number;
+  constructor(private ctx: MGContext, private rooms: string[]) {
+    const rs = (rooms.length ? rooms : [ctx.house.rooms[0].id]).map((id) => ctx.house.roomRect(id));
+    this.floorY = Math.max(...rs.map((r) => r.bottom));
+    this.x0 = Math.min(...rs.map((r) => r.x0)) - 2;
+    this.x1 = Math.max(...rs.map((r) => r.x1)) + 2;
+    this.maxLevel = Math.min(40, Math.min(...rs.map((r) => r.bottom - r.top)) - 10);
+    const cx = (this.x0 + this.x1) / 2;
+    this.water = ctx.scene.add.rectangle(cx, this.floorY, this.x1 - this.x0, 0, 0x2a6ad0, 0.55).setOrigin(0.5, 1).setDepth(20);
+    this.surface = ctx.scene.add.rectangle(cx, this.floorY, this.x1 - this.x0, 1, 0x9ad0ff, 0.9).setDepth(21);
     this.under = ctx.avatars.map(() => 0);
   }
   update(dt: number) {
-    this.level = Math.min(46, this.level + dt * 0.0016);
-    const top = FLOOR_Y[0] - this.level;
-    this.water.setSize(464, this.level);
-    this.water.setPosition(W / 2, FLOOR_Y[0]);
-    if (this.level > 8) this.ctx.house.rooms.filter((r) => r.floor === 0).forEach((r) => this.ctx.hotRooms.add(r.id));
+    this.level = Math.min(this.maxLevel, this.level + dt * 0.0014);
+    const top = this.floorY - this.level;
+    this.water.setSize(this.x1 - this.x0, this.level);
+    this.water.setPosition((this.x0 + this.x1) / 2, this.floorY);
+    if (this.level > 8) this.rooms.forEach((r) => this.ctx.hotRooms.add(r));
     this.surface.y = top + Math.sin(this.ctx.now / 200);
     this.ctx.avatars.forEach((av, i) => {
-      if (av.y + 7 < top || av.y > FLOOR_Y[0] + 4) {
+      if (av.y + 7 < top || av.y > this.floorY + 4 || av.x < this.x0 || av.x > this.x1) {
         this.under[i] = 0;
         return;
       }
@@ -115,6 +126,8 @@ class Flood implements System {
 interface Strike {
   x: number;
   floorY: number;
+  /** Where the rock appears (above the roof). */
+  skyY: number;
   t: number;
   shadow: Phaser.GameObjects.Image;
   rock?: Phaser.GameObjects.Image;
@@ -132,15 +145,15 @@ class Meteors implements System {
       const room = c.house.roomRect(this.rooms[Math.floor(c.rnd() * this.rooms.length)]);
       const x = room.x0 + 8 + c.rnd() * (room.x1 - room.x0 - 16);
       const shadow = c.scene.add.image(x, room.bottom - 1, 'shadow').setAlpha(0.5).setDepth(8);
-      this.strikes.push({ x, floorY: room.bottom, t: 0, shadow });
+      this.strikes.push({ x, floorY: room.bottom, skyY: room.top - 40, t: 0, shadow });
     }
     for (const s of this.strikes) {
       s.t += dt;
       s.shadow.setScale(0.5 + Math.min(1, s.t / 900));
-      if (s.t > 650 && !s.rock) s.rock = c.scene.add.image(s.x, ROOF_Y, 'meteor').setDepth(22);
+      if (s.t > 650 && !s.rock) s.rock = c.scene.add.image(s.x, s.skyY, 'meteor').setDepth(22);
       if (s.rock) {
         const k = Math.min(1, (s.t - 650) / 260);
-        s.rock.y = ROOF_Y + (s.floorY - 4 - ROOF_Y) * k;
+        s.rock.y = s.skyY + (s.floorY - 4 - s.skyY) * k;
         s.rock.rotation += dt * 0.02;
         s.rock.setTexture(Math.floor(c.now / 90) % 2 ? 'meteor1' : 'meteor');
       }
@@ -229,8 +242,15 @@ class Stampede implements System {
   private herds: Herd[] = [];
   private next = 1500;
   private floorY: number;
+  /** The herd runs across the span of the target rooms on their floor. */
+  private x0: number;
+  private x1: number;
   constructor(private ctx: MGContext, private rooms: string[]) {
-    this.floorY = ctx.house.roomRect(rooms[0]).bottom;
+    const r0 = ctx.house.roomRect(rooms[0]);
+    this.floorY = r0.bottom;
+    const rs = rooms.map((id) => ctx.house.roomRect(id)).filter((r) => r.bottom === this.floorY);
+    this.x0 = Math.min(...rs.map((r) => r.x0));
+    this.x1 = Math.max(...rs.map((r) => r.x1));
   }
   update(dt: number) {
     const c = this.ctx;
@@ -239,27 +259,29 @@ class Stampede implements System {
     if (this.next <= 0) {
       this.next = 3400;
       const dir = c.rnd() < 0.5 ? 1 : -1;
-      const x = dir > 0 ? -30 : W + 30;
+      const x = dir > 0 ? this.x0 - 30 : this.x1 + 30;
       const beasts = [0, 1, 2].map((k) =>
         c.scene.add.image(x - dir * k * 22, this.floorY - 5, 'beast').setFlipX(dir < 0).setDepth(18),
       );
       this.herds.push({ dir, x, floorY: this.floorY, beasts });
-      c.popText('STAMPEDE!', dir > 0 ? 40 : W - 40, this.floorY - 40, '#ffcc66');
+      c.popText('STAMPEDE!', dir > 0 ? this.x0 + 30 : this.x1 - 30, this.floorY - 30, '#ffcc66');
     }
     for (const h of this.herds) {
       h.x += h.dir * 0.16 * dt;
       h.beasts.forEach((b, k) => {
         b.x = h.x - h.dir * k * 22;
         b.y = h.floorY - 5 - Math.abs(Math.sin((c.now + k * 90) / 70)) * 2;
+        b.setVisible(b.x > this.x0 - 6 && b.x < this.x1 + 6);
         b.setTexture(Math.floor((c.now + k * 70) / 110) % 2 ? 'beast1' : 'beast');
         c.avatars.forEach((av, i) => {
-          if (overlaps(av, b.x, b.y, 10, 9)) hitAvatar(c, i, h.dir * 160, 900);
+          if (b.visible && overlaps(av, b.x, b.y, 10, 9)) hitAvatar(c, i, h.dir * 160, 900);
         });
         c.dangers.push({ x: b.x - h.dir * 10, y: h.floorY - 8, r: 30, jump: true });
       });
     }
-    for (const h of this.herds.filter((q) => q.x < -120 || q.x > W + 120)) h.beasts.forEach((b) => b.destroy());
-    this.herds = this.herds.filter((q) => q.x >= -120 && q.x <= W + 120);
+    const gone = (q: Herd) => q.x < this.x0 - 120 || q.x > this.x1 + 120;
+    for (const h of this.herds.filter(gone)) h.beasts.forEach((b) => b.destroy());
+    this.herds = this.herds.filter((q) => !gone(q));
   }
   destroy() {
     for (const h of this.herds) h.beasts.forEach((b) => b.destroy());
@@ -386,7 +408,7 @@ export function createHazard(ctx: MGContext, id: HazardId, rooms: string[]): Haz
   };
   switch (id) {
     case 'flood':
-      return withHits(ctx, new Flood(ctx));
+      return withHits(ctx, new Flood(ctx, rooms));
     case 'meteor':
       return withHits(ctx, new Meteors(ctx, rooms));
     case 'vines':

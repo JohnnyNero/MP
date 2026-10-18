@@ -1,14 +1,31 @@
 import Phaser from 'phaser';
 import { CLIMB_SPEED, GRAVITY, JUMP_V, RUN_SPEED, type Climbable } from './config';
-import type { Chute, HouseView } from './houseView';
-import { sfx } from './sfx';
+import type { HouseView } from './houseView';
+import { sfx, type SfxName } from './sfx';
 import type { VirtualPad } from './input';
 
 /** Avatar frame height and the origin row (7px above the feet). */
 const SPR_H = 18;
 const SPR_ORIGIN_Y = SPR_H - 7;
-/** Speed through a laundry chute (px/s). */
-const CHUTE_SPEED = 420;
+
+/**
+ * A ride along a fixed path with the body switched off: laundry chutes,
+ * poles, slides, trampolines, the dumbwaiter and revolving bookcases.
+ */
+export interface RideSpec {
+  /** Avatar-centre path; the ride ends at the last point. */
+  path: [number, number][];
+  speed: number; // px/s
+  scale?: number;
+  spin?: boolean;
+  depth?: number;
+  frame?: string;
+  /** Velocity on leaving the ride. */
+  exitVel?: [number, number];
+  /** Pop out with a squash, puffs and a bounce (chute mouths). */
+  pop?: boolean;
+  sound?: SfxName;
+}
 
 export interface AvatarMods {
   /** Rooms where gravity is inverted (Gravity Flip hazard). */
@@ -27,9 +44,9 @@ export class Avatar {
   slow = 1; // per-frame slow from hazards (reset each frame)
   room: string | undefined;
   flipped = false;
-  /** Riding a laundry chute: the chute and the distance travelled along its pipe. */
-  chute: Chute | null = null;
-  private chuteD = 0;
+  /** Riding a feature: the ride and the distance travelled along its path. */
+  ride: RideSpec | null = null;
+  private rideD = 0;
   private runFrame = 0;
   private bodyFlipped = false;
 
@@ -68,7 +85,7 @@ export class Avatar {
 
   /** Returns true if the hit landed. */
   hit(now: number, knockX = 0, stunMs = 1100): boolean {
-    if (now < this.invulnUntil || this.chute) return false;
+    if (now < this.invulnUntil || this.ride) return false;
     this.hits += 1;
     this.stunnedUntil = now + stunMs;
     this.invulnUntil = now + stunMs + 700;
@@ -79,7 +96,7 @@ export class Avatar {
   }
 
   teleport(x: number, y: number) {
-    if (this.chute) this.leaveChute();
+    if (this.ride) this.leaveRide();
     this.climbing = null;
     this.body.allowGravity = true;
     this.body.reset(x, y);
@@ -110,8 +127,8 @@ export class Avatar {
     const frozen = now < this.frozenUntil;
     this.sprite.setTint(0xffffff);
 
-    if (this.chute) {
-      this.updateChute(dt);
+    if (this.ride) {
+      this.updateRide(dt);
       return;
     }
     if (this.climbing) {
@@ -119,15 +136,8 @@ export class Avatar {
       return;
     }
 
-    // Laundry chutes: step (or land) on an open hatch and you drop in.
-    if (!this.flipped && this.body.velocity.y >= 0) {
-      for (const c of house.chutes) {
-        if (Math.abs(this.x - c.hatchX) < 6 && Math.abs(this.feetY - c.hatchY) < 4) {
-          this.enterChute(c);
-          return;
-        }
-      }
-    }
+    // Chute hatches, slide lips and trampoline beds fire on contact.
+    if (house.touchFeatures(this)) return;
 
     if (stunned) {
       this.body.setVelocityX(this.body.velocity.x * 0.9);
@@ -158,6 +168,9 @@ export class Avatar {
       this.body.setVelocityY(this.flipped ? v : -v);
     }
 
+    // Poles, portals, the dumbwaiter, bookcases, switches and levers.
+    if (house.useFeatures(this, pad, now)) return;
+
     // Enter a ladder/stairs.
     const climbHeld = pad.y < -0.5 || pad.y > 0.5;
     if (climbHeld && this.onGround && !this.flipped) {
@@ -174,45 +187,54 @@ export class Avatar {
     }
   }
 
-  private enterChute(c: Chute) {
-    this.chute = c;
-    this.chuteD = 0;
+  /** Start riding a feature (see RideSpec). */
+  startRide(r: RideSpec) {
+    this.ride = r;
+    this.rideD = 0;
     this.climbing = null;
     this.body.setVelocity(0, 0);
     // The body sits out the ride: no gravity, no collisions, no overlaps.
     this.body.enable = false;
-    this.sprite.setAlpha(1).setScale(0.55).setDepth(-13);
-    this.setFrame('fall');
-    sfx('step');
+    this.sprite.setAlpha(1).setScale(r.scale ?? 1).setDepth(r.depth ?? 10);
+    this.sprite.setPosition(r.path[0][0], r.path[0][1]);
+    this.setFrame(r.frame ?? 'fall');
+    if (r.sound) sfx(r.sound);
   }
 
-  /** Slide the shrunken, spinning avatar along the pipe (over the pipe art, under lamps and stairs). */
-  private updateChute(dt: number) {
-    const path = this.chute!.path;
-    this.chuteD += (CHUTE_SPEED * dt) / 1000;
-    let d = this.chuteD;
+  private updateRide(dt: number) {
+    const r = this.ride!;
+    const path = r.path;
+    this.rideD += (r.speed * dt) / 1000;
+    let d = this.rideD;
     for (let i = 1; i < path.length; i++) {
       const [ax, ay] = path[i - 1];
       const [bx, by] = path[i];
       const len = Math.hypot(bx - ax, by - ay);
       if (d <= len) {
-        const t = d / len;
+        const t = len ? d / len : 1;
         this.sprite.setPosition(ax + (bx - ax) * t, ay + (by - ay) * t);
-        this.sprite.setAngle(this.sprite.angle + dt * 1.2);
+        if (r.spin) this.sprite.setAngle(this.sprite.angle + dt * 1.2);
         return;
       }
       d -= len;
     }
-    this.exitChute();
+    this.exitRide();
   }
 
-  /** Pop out of the mouth with a little bounce. */
-  private exitChute() {
-    const [mx, my] = this.chute!.path[this.chute!.path.length - 1];
+  private exitRide() {
+    const r = this.ride!;
+    const [mx, my] = r.path[r.path.length - 1];
     const scene = this.sprite.scene;
-    this.leaveChute();
+    this.leaveRide();
+    const [vx, vy] = r.exitVel ?? [0, 0];
+    if (!r.pop) {
+      this.body.reset(mx, my);
+      this.body.setVelocity(vx, vy);
+      return;
+    }
+    // Pop out of the mouth with a little bounce.
     this.body.reset(mx, my + 6);
-    this.body.setVelocity(this.sprite.flipX ? -50 : 50, -95);
+    this.body.setVelocity(this.sprite.flipX ? -vx : vx, vy);
     this.sprite.setScale(1.35, 0.65);
     scene.tweens.add({ targets: this.sprite, scaleX: 1, scaleY: 1, duration: 220, ease: 'Back.easeOut' });
     for (let i = 0; i < 5; i++) {
@@ -230,8 +252,8 @@ export class Avatar {
     sfx('whoosh');
   }
 
-  private leaveChute() {
-    this.chute = null;
+  private leaveRide() {
+    this.ride = null;
     this.body.enable = true;
     this.body.allowGravity = true;
     this.sprite.setScale(1).setAngle(0).setDepth(10);

@@ -7,14 +7,30 @@ export const ZOOM = 2;
 export const PLAYER_COLORS = [0xe8504a, 0x4a8be8, 0x5cc85a, 0xf2c94c];
 export const PLAYER_CSS = ['#e8504a', '#4a8be8', '#5cc85a', '#f2c94c'];
 
-/** Surface y (top of the floor slab) for floors 0..2, and the roof. */
-export const FLOOR_Y = [262, 182, 102];
-export const ROOF_Y = 22;
+/**
+ * The house grid: 6 x 4 cells, row 0 at the top. Each row is CH tall and its
+ * floor slab (SLAB thick) is the bottom of the row, so a one-row room is
+ * CH - SLAB = 52 px tall inside. Roofs sit above the top-most cells.
+ */
+export const GRID_COLS = 6;
+export const GRID_ROWS = 4;
+export const X0 = 12;
+export const CW = 76;
+export const Y0 = 34;
+export const CH = 58;
 export const SLAB = 6;
-export const ROOM_INNER_H = 74;
-export const COL_X = [8, 160, 320, 472];
 export const WALL = 4;
 export const DOOR_H = 30;
+/** Height of a roof triangle over a top-most cell. */
+export const ROOF_H = 18;
+/** World x of vertical grid line gx. */
+export const gridX = (gx: number) => X0 + gx * CW;
+/** World y of the top of grid row gy (just under the slab above it). */
+export const rowTop = (gy: number) => Y0 + gy * CH;
+/** Floor surface (top of the slab) at the bottom of grid row gy. */
+export const rowFloor = (gy: number) => Y0 + (gy + 1) * CH - SLAB;
+export const HOUSE_X0 = gridX(0);
+export const HOUSE_X1 = gridX(GRID_COLS);
 
 export const GRAVITY = 620;
 export const RUN_SPEED = 82;
@@ -43,43 +59,3 @@ export interface Climbable {
   lower: string;
   upper: string;
 }
-
-/** Fixed geometry for the base connections in content/house.ts. */
-export const CLIMB_GEOMETRY: Record<string, Omit<Climbable, 'id' | 'lower' | 'upper'>> = {
-  's-kitchen-bedroom': { kind: 'stairs', x0: 34, y0: FLOOR_Y[0], x1: 112, y1: FLOOR_Y[1] },
-  'l-garage-kids': { kind: 'ladder', x0: 452, y0: FLOOR_Y[0], x1: 452, y1: FLOOR_Y[1] },
-  'l-bathroom-study': { kind: 'ladder', x0: 296, y0: FLOOR_Y[1], x1: 296, y1: FLOOR_Y[2] },
-  'l-kids-storage': { kind: 'ladder', x0: 344, y0: FLOOR_Y[1], x1: 344, y1: FLOOR_Y[2] },
-};
-
-/**
- * One-way laundry chutes. `hatchX` is the open hatch in the upper room's floor;
- * `path` is the pipe centerline from the hatch to the mouth (last point, where
- * you pop out). Segments after the first are axis-aligned.
- */
-export const CHUTE_GEOMETRY: Record<string, { hatchX: number; path: [number, number][] }> = {
-  // Down the attic and bedroom's outer wall, along the kitchen ceiling,
-  // through the wall above the door and out over the living room.
-  'c-attic-living': {
-    hatchX: 16,
-    path: [
-      [16, FLOOR_Y[2] - 1],
-      [7, FLOOR_Y[2] + 7],
-      [7, 206],
-      [172, 206],
-      [172, 220],
-    ],
-  },
-};
-
-export const BOARD_X: Record<string, number> = {
-  kitchen: 84,
-  living: 240,
-  garage: 396,
-  bedroom: 60,
-  bathroom: 240,
-  kids: 400,
-  attic: 100,
-  study: 240,
-  storage: 400,
-};

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { COL_X, DOOR_H, FLOOR_Y, ROOF_Y, ROOM_INNER_H, SLAB, WALL } from '../config';
+import { DOOR_H, ROOF_H, SLAB, Y0 } from '../config';
+import type { Layout, LiftGeo, SlideGeo, TrampGeo, TrapGeo } from '../houseLayout';
 
 // Option C "Chunky 16-bit" house art. Everything is drawn into small pixel
 // buffers in code and committed as canvas textures; no image files.
@@ -233,41 +234,120 @@ function breakPx(src: Px, r: () => number): Px {
 }
 
 // ------------------------------------------------------------------ room wallpapers
-type Pattern = 'stripe' | 'dots' | 'damask' | 'stars' | 'diamond' | 'block' | 'vplank' | 'hplank' | 'floral';
-interface Theme {
-  base: number;
+type Pattern =
+  | 'stripe'
+  | 'dots'
+  | 'damask'
+  | 'stars'
+  | 'diamond'
+  | 'block'
+  | 'vplank'
+  | 'hplank'
+  | 'floral'
+  | 'check'
+  | 'wave'
+  | 'bumps'
+  | 'knit'
+  | 'gears'
+  | 'crater'
+  | 'panes'
+  | 'spots';
+
+/** Hanging light per theme. */
+export type LampKind = 'lamp-pendant' | 'lamp-bulb' | 'lamp-disco' | null;
+
+export interface ThemeArt {
   pat: Pattern;
-  patC: number;
   rail?: boolean;
+  wainscot?: { kind: 'tile' | 'panel' | 'hazard' | 'keys'; c?: number; h: number };
   skirt?: number;
-  wainscot?: { kind: 'tile' | 'panel' | 'hazard'; c: number; h: number };
+  window?: boolean;
+  lamp?: LampKind;
+  /** Floor furniture, placed left to right where it fits. */
+  floor: string[];
+  /** Wall hangings (bottom edge `y` px above the floor). */
+  wall: [string, number][];
+  /** Furniture hangs from the ceiling, upside down. */
+  ceiling?: boolean;
+  /** Extra wallpaper drawing (room-local). */
+  special?: (p: Px, w: number, h: number, base: number, r: () => number) => void;
 }
 
-export const ROOM_THEMES: Record<string, Theme> = {
-  kitchen: { base: 0xc86a3a, pat: 'diamond', patC: 0xe08a4a, rail: true },
-  living: { base: 0x6a58b8, pat: 'stripe', patC: 0x5a4aa0, rail: true, wainscot: { kind: 'panel', c: 0x4a3a8a, h: 22 } },
-  garage: { base: 0x6a7a8a, pat: 'block', patC: 0x4a5868, wainscot: { kind: 'hazard', c: 0xf0c030, h: 10 }, skirt: 0x4a5868 },
-  bedroom: { base: 0xc85a8a, pat: 'floral', patC: 0xe880a8, rail: true },
-  bathroom: { base: 0x3a8ab8, pat: 'dots', patC: 0x68b0d8, rail: true, wainscot: { kind: 'tile', c: 0xe8f4fa, h: 30 } },
-  kids: { base: 0x58a848, pat: 'stars', patC: 0xffe08a, rail: true },
-  attic: { base: 0x8a5a3a, pat: 'vplank', patC: 0x5a3420, skirt: 0x5a3420 },
-  study: { base: 0x2a7a5a, pat: 'damask', patC: 0x3a9a70, rail: true, wainscot: { kind: 'panel', c: 0x6a3a1a, h: 24 } },
-  storage: { base: 0x7a6a5a, pat: 'hplank', patC: 0x54463a, skirt: 0x54463a },
+const T = (t: ThemeArt) => t;
+
+/** Art per theme key (content/houseThemes.ts). Unknown keys fall back by pattern hash. */
+export const THEME_ART: Record<string, ThemeArt> = {
+  // Sensible.
+  kitchen: T({ pat: 'diamond', rail: true, window: true, floor: ['counter', 'fridge', 'table'], wall: [['clock', 30]], special: backsplash }),
+  bathroom: T({ pat: 'dots', rail: true, wainscot: { kind: 'tile', c: 0xe8f4fa, h: 18 }, floor: ['tub', 'toilet', 'sink'], wall: [['mirror', 24], ['towel', 22]] }),
+  bedroom: T({ pat: 'floral', rail: true, window: true, floor: ['bed', 'nightstand', 'wardrobe', 'dresser'], wall: [['frame-port', 26]] }),
+  living: T({ pat: 'stripe', rail: true, wainscot: { kind: 'panel', h: 16 }, floor: ['couch', 'tv', 'floorlamp', 'armchair'], wall: [['frame-land', 26], ['clock', 32]] }),
+  pantry: T({ pat: 'hplank', skirt: 0x5a3a20, lamp: 'lamp-bulb', floor: ['jars', 'boxes', 'jars'], wall: [] }),
+  study: T({ pat: 'damask', rail: true, wainscot: { kind: 'panel', c: 0x6a3a1a, h: 16 }, floor: ['desk', 'globe', 'bookcase', 'armchair'], wall: [['shelf-books', 28]] }),
+  garage: T({ pat: 'block', wainscot: { kind: 'hazard', c: 0xf0c030, h: 8 }, skirt: 0x4a5868, lamp: 'lamp-bulb', floor: ['car', 'workbench'], wall: [], special: pegboard }),
+  laundry: T({ pat: 'check', rail: true, floor: ['washer', 'washer', 'boxes'], wall: [['towel', 24]] }),
+  dining: T({ pat: 'damask', rail: true, wainscot: { kind: 'panel', h: 16 }, window: true, floor: ['table', 'plant'], wall: [['frame-land', 28]] }),
+  hallway: T({ pat: 'stripe', rail: true, floor: ['coatrack', 'plant', 'trunk'], wall: [['frame-port', 26], ['mirror', 24]] }),
+  nursery: T({ pat: 'stars', rail: true, window: true, floor: ['crib', 'toybox', 'rockinghorse'], wall: [['poster', 24]], special: bunting }),
+  library: T({ pat: 'vplank', skirt: 0x3a2010, floor: ['bookcase', 'bookcase', 'armchair', 'globe'], wall: [['shelf-books', 30]] }),
+  attic: T({ pat: 'vplank', skirt: 0x5a3420, lamp: 'lamp-bulb', floor: ['rockinghorse', 'trunk', 'boxes'], wall: [], special: atticBits }),
+  cellar: T({ pat: 'block', skirt: 0x3a3028, lamp: 'lamp-bulb', floor: ['barrels', 'shelfunit', 'barrels'], wall: [] }),
+  workshop: T({ pat: 'hplank', wainscot: { kind: 'hazard', c: 0xf0c030, h: 8 }, lamp: 'lamp-bulb', floor: ['workbench', 'boxes'], wall: [], special: pegboard }),
+  guest: T({ pat: 'floral', rail: true, window: true, floor: ['bed', 'nightstand', 'plant'], wall: [['frame-land', 28]] }),
+  playroom: T({ pat: 'stars', rail: true, floor: ['toys', 'toybox', 'kidbed'], wall: [['poster', 24]], special: bunting }),
+  music: T({ pat: 'stripe', rail: true, wainscot: { kind: 'keys', h: 10 }, floor: ['piano', 'speaker'], wall: [['frame-port', 28]] }),
+  office: T({ pat: 'check', rail: true, window: true, floor: ['desk', 'shelfunit', 'plant'], wall: [['clock', 32]] }),
+  sunroom: T({ pat: 'panes', window: true, floor: ['plant', 'armchair', 'plant'], wall: [] }),
+  mudroom: T({ pat: 'hplank', skirt: 0x3a2a1a, floor: ['coatrack', 'boxes'], wall: [['hats', 30]] }),
+  den: T({ pat: 'stripe', wainscot: { kind: 'panel', h: 16 }, floor: ['couch', 'tv'], wall: [['frame-land', 28]] }),
+  boiler: T({ pat: 'block', wainscot: { kind: 'hazard', c: 0xf0c030, h: 8 }, lamp: 'lamp-bulb', floor: ['boiler', 'barrels'], wall: [], special: pipes }),
+  gamesroom: T({ pat: 'damask', rail: true, floor: ['pooltable', 'arcade'], wall: [['frame-land', 30]] }),
+  // Silly.
+  ballpit: T({ pat: 'spots', floor: ['slide-toy'], wall: [['poster', 30]], special: ballPit }),
+  bouncycastle: T({ pat: 'bumps', lamp: null, floor: ['toys'], wall: [], special: castleTop }),
+  knitting: T({ pat: 'knit', rail: true, window: true, floor: ['rockchair', 'yarn', 'basket', 'yarn'], wall: [['doily', 28]] }),
+  aquarium: T({ pat: 'wave', floor: ['armchair', 'plant'], wall: [['tank', 10]], special: bubbles }),
+  trophy: T({ pat: 'damask', rail: true, wainscot: { kind: 'panel', c: 0x6a3a1a, h: 16 }, floor: ['trophycase', 'trophy', 'trophycase'], wall: [['trophyshelf', 30]] }),
+  catroom: T({ pat: 'dots', rail: true, floor: ['cattree', 'cat', 'yarn', 'cat'], wall: [['fishframe', 28]] }),
+  disco: T({ pat: 'spots', lamp: 'lamp-disco', floor: ['speaker', 'speaker'], wall: [], special: discoFloor }),
+  greenhouse: T({ pat: 'panes', lamp: 'lamp-bulb', floor: ['plant', 'bigplant', 'plant', 'bigplant'], wall: [] }),
+  arcade: T({ pat: 'stars', floor: ['arcade', 'arcade', 'arcade'], wall: [], special: neon }),
+  karaoke: T({ pat: 'stripe', lamp: 'lamp-disco', floor: ['speaker', 'mic', 'speaker'], wall: [] }),
+  hatroom: T({ pat: 'floral', rail: true, floor: ['coatrack', 'mirrorstand'], wall: [['hats', 28], ['hats', 28]] }),
+  snackvault: T({ pat: 'block', floor: ['snackshelf', 'vault', 'snackshelf'], wall: [] }),
+  // Nonsense.
+  sockdrawer: T({ pat: 'knit', floor: ['sockpile'], wall: [['sock', 14], ['sock', 18], ['sock', 12]] }),
+  upsidedown: T({ pat: 'stripe', rail: true, ceiling: true, floor: ['couch', 'floorlamp', 'armchair'], wall: [['frame-land', 18]] }),
+  hallofdoors: T({ pat: 'damask', floor: [], wall: [], special: wallDoors }),
+  wardrobe: T({ pat: 'vplank', skirt: 0x2a1a10, lamp: 'lamp-bulb', floor: ['shoes', 'trunk', 'shoes'], wall: [], special: coats }),
+  giantfridge: T({ pat: 'check', lamp: 'lamp-bulb', floor: ['milk', 'cheese', 'egg', 'milk'], wall: [], special: fridgeShelves }),
+  bathtubboat: T({ pat: 'dots', wainscot: { kind: 'tile', c: 0xe8f4fa, h: 12 }, floor: ['boat'], wall: [['towel', 26]], special: bathWater }),
+  pianostairs: T({ pat: 'stripe', wainscot: { kind: 'keys', h: 14 }, floor: ['grandpiano'], wall: [['frame-port', 30]] }),
+  pillowfort: T({ pat: 'stars', lamp: null, floor: ['tent', 'pillows', 'pillows'], wall: [], special: fairyLights }),
+  clockinside: T({ pat: 'gears', lamp: 'lamp-bulb', floor: ['pendulum'], wall: [['clock', 30]] }),
+  jellyroom: T({ pat: 'spots', floor: ['jelly', 'jelly', 'jelly'], wall: [], special: jellyShine }),
+  tinyroom: T({ pat: 'floral', rail: true, floor: ['tinydoor', 'nightstand'], wall: [['frame-port', 26]] }),
+  moonroom: T({ pat: 'crater', lamp: null, floor: ['moonflag', 'rocket'], wall: [], special: moonWindow }),
 };
 
-function pattern(p: Px, t: Theme, w: number, h: number) {
-  const c = t.patC;
-  const r = rng(hashStr(t.pat));
+const PATTERNS: Pattern[] = ['stripe', 'dots', 'damask', 'stars', 'diamond', 'floral', 'check'];
+export function themeArt(theme: string): ThemeArt {
+  return THEME_ART[theme] ?? { pat: PATTERNS[hashStr(theme) % PATTERNS.length], rail: true, floor: ['plant', 'boxes'], wall: [['frame-land', 28]] };
+}
+
+function pattern(p: Px, pat: Pattern, base: number, w: number, h: number, seed: number) {
+  const c = pat === 'block' || pat === 'vplank' || pat === 'hplank' ? shade(base, 0.72) : mix(base, 0xffffff, 0.2);
+  const r = rng(hashStr(pat) ^ seed);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       let on = false;
       let col = c;
-      switch (t.pat) {
+      switch (pat) {
         case 'stripe':
           on = x % 10 < 3;
           if (x % 10 === 6 && y % 2 === 0) {
             on = true;
-            col = shade(t.base, 1.25);
+            col = shade(base, 1.25);
           }
           break;
         case 'dots':
@@ -283,10 +363,10 @@ function pattern(p: Px, t: Theme, w: number, h: number) {
           const ox = (x + (Math.floor(y / 12) % 2) * 6) % 12;
           const oy = y % 12;
           on = (ox === 6 && oy >= 4 && oy <= 8) || (oy === 6 && ox >= 4 && ox <= 8);
-          if (on && (ox === 6 && oy === 6)) col = 0xffffff;
+          if (on) col = ox === 6 && oy === 6 ? 0xffffff : 0xffe08a;
           if (!on && ((ox === 1 && oy === 1) || (ox === 10 && oy === 9))) {
             on = true;
-            col = shade(t.base, 1.3);
+            col = shade(base, 1.3);
           }
           break;
         }
@@ -307,33 +387,105 @@ function pattern(p: Px, t: Theme, w: number, h: number) {
           on = x % 8 === 7;
           if (!on && x % 8 === 0) {
             on = true;
-            col = shade(t.base, 1.15);
+            col = shade(base, 1.15);
           }
           break;
         case 'hplank':
-          on = y % 7 === 6 || (y % 7 !== 6 && (x + Math.floor(y / 7) * 13) % 31 === 0);
+          on = y % 7 === 6 || (x + Math.floor(y / 7) * 13) % 31 === 0;
           break;
         case 'floral': {
           const ox = (x + (Math.floor(y / 9) % 2) * 6) % 12;
           const oy = y % 9;
-          on = (Math.abs(ox - 6) + Math.abs(oy - 4) === 1);
+          on = Math.abs(ox - 6) + Math.abs(oy - 4) === 1;
           if (ox === 6 && oy === 4) {
             on = true;
             col = TRIM;
           }
           break;
         }
+        case 'check':
+          on = (Math.floor(x / 6) + Math.floor(y / 6)) % 2 === 0;
+          col = mix(base, 0xffffff, 0.12);
+          break;
+        case 'wave': {
+          const yy = (y + Math.round(Math.sin(x / 4) * 2) + 40) % 9;
+          on = yy === 0;
+          if (yy === 1) {
+            on = true;
+            col = shade(base, 0.8);
+          }
+          break;
+        }
+        case 'bumps': {
+          // Inflatable columns: rounded vertical tubes with a highlight.
+          const tx = x % 14;
+          on = tx === 0 || tx === 13;
+          col = shade(base, 0.7);
+          if (tx === 3 || tx === 4) {
+            on = true;
+            col = mix(base, 0xffffff, 0.35);
+          }
+          if (tx > 4 && tx < 12 && (Math.floor(x / 14) % 2 === 0)) {
+            on = true;
+            col = mix(base, 0xe84a4a, 0.35);
+          }
+          break;
+        }
+        case 'knit': {
+          const kx = x % 6;
+          const ky = (y + (kx < 3 ? kx : 5 - kx)) % 4;
+          on = ky === 0;
+          if (Math.floor(y / 12) % 3 === 1) col = mix(base, 0xffe08a, 0.4);
+          break;
+        }
+        case 'gears': {
+          const gx = (x % 24) - 12;
+          const gy = (y % 24) - 12;
+          const d = Math.sqrt(gx * gx + gy * gy);
+          const teeth = Math.floor(((Math.atan2(gy, gx) + Math.PI) / (Math.PI * 2)) * 16) % 2 === 0;
+          on = (d > 6 && d < 9) || (d >= 9 && d < 11 && teeth) || d < 2;
+          col = mix(base, 0xffe08a, 0.35);
+          break;
+        }
+        case 'crater':
+          on = r() < 0.04;
+          col = shade(base, r() < 0.5 ? 0.75 : 1.2);
+          break;
+        case 'panes':
+          on = x % 18 === 0 || y % 16 === 0;
+          col = mix(base, 0xffffff, 0.55);
+          if (!on && (x % 18) + (y % 16) === 6) {
+            on = true;
+            col = 0xffffff;
+          }
+          break;
+        case 'spots':
+          on = ((x * 7 + y * 13) % 41 === 0 || (x * 11 + y * 5) % 53 === 0);
+          col = [0xffe060, 0x60e0ff, 0xff60c0, 0x80ff80][(x + y) % 4];
+          break;
       }
       if (on) p.set(x, y, col);
     }
   }
+  if (pat === 'crater') {
+    for (let k = 0; k < (w * h) / 500; k++) {
+      const cx = Math.floor(r() * w);
+      const cy = Math.floor(r() * (h - 10));
+      const rad = 2 + Math.floor(r() * 4);
+      for (let y = -rad; y <= rad; y++)
+        for (let x = -rad; x <= rad; x++) {
+          const d = x * x + y * y;
+          if (d <= rad * rad) p.set(cx + x, cy + y, d >= (rad - 1) * (rad - 1) ? (y < 0 ? shade(base, 0.7) : mix(base, 0xffffff, 0.2)) : shade(base, 0.88));
+        }
+    }
+  }
   // Per-block tint for block/plank walls.
-  if (t.pat === 'block' || t.pat === 'vplank' || t.pat === 'hplank') {
-    for (let k = 0; k < 40; k++) {
+  if (pat === 'block' || pat === 'vplank' || pat === 'hplank') {
+    for (let k = 0; k < (w * h) / 100; k++) {
       const x = Math.floor(r() * w);
       const y = Math.floor(r() * h);
-      p.set(x, y, shade(t.base, 0.85));
-      p.set(x + 1, y, shade(t.base, 0.85));
+      p.set(x, y, shade(base, 0.85));
+      p.set(x + 1, y, shade(base, 0.85));
     }
   }
 }
@@ -342,15 +494,12 @@ function drawWindow(p: Px, x: number, y: number, w: number, h: number, curtain?:
   p.rect(x - 2, y - 2, w + 4, h + 4, INK);
   p.rect(x - 1, y - 1, w + 2, h + 2, TRIM);
   p.vgrad(x, y, w, h, 0x2a3a90, WIN);
-  // Stars, moon, glints.
   p.set(x + 3, y + 3, 0xffffff);
   p.set(x + w - 4, y + 5, 0xffffff);
   if (moon) p.rect(x + w - 7, y + 2, 3, 3, 0xf0e8b0);
   p.set(x + 2, y + h - 3, 0xc8f0ff);
-  // Muntins.
   p.vline(x + (w >> 1), y, h, TRIM);
   p.hline(x, y + (h >> 1), w, TRIM);
-  // Sill.
   p.rect(x - 3, y + h + 1, w + 6, 2, TRIM_D);
   p.hline(x - 3, y + h + 3, w + 6, INK);
   if (curtain !== undefined) {
@@ -367,46 +516,66 @@ function drawWindow(p: Px, x: number, y: number, w: number, h: number, curtain?:
   }
 }
 
-function drawRoomWall(id: string, w: number, h: number): Px {
-  const t = ROOM_THEMES[id];
+/** Wallpaper, rail, wainscot, skirting and theme dressing for one room (room-local pixels). */
+export function drawRoomWall(room: { id: string; theme: string; color: number; x0: number; x1: number; top: number; bottom: number }): Px {
+  const t = themeArt(room.theme);
+  const w = room.x1 - room.x0;
+  const h = room.bottom - room.top;
+  const base = room.color;
+  const seed = hashStr(room.id);
+  const r = rng(seed);
   const p = new Px(w, h);
-  p.rect(0, 0, w, h, t.base);
-  pattern(p, t, w, h);
+  p.rect(0, 0, w, h, base);
+  pattern(p, t.pat, base, w, h, seed);
   // Ceiling shadow, dithered.
-  for (let y = 0; y < 10; y++) for (let x = 0; x < w; x++) if (!dith(x, y, y / 10)) p.set(x, y, shade(t.base, 0.55));
+  for (let y = 0; y < 8; y++) for (let x = 0; x < w; x++) if (!dith(x, y, y / 8)) p.set(x, y, shade(base, 0.55));
   if (t.rail) {
-    p.hline(0, 14, w, TRIM);
-    p.hline(0, 15, w, TRIM_D);
-    p.hline(0, 16, w, shade(t.base, 0.7));
+    p.hline(0, 11, w, TRIM);
+    p.hline(0, 12, w, TRIM_D);
+    p.hline(0, 13, w, shade(base, 0.7));
+  }
+  if (t.window && w >= 60) {
+    const ww = 20;
+    const wx = Math.round(8 + r() * (w - ww - 16));
+    drawWindow(p, wx, h - 40, ww, 14, mix(base, 0xe8504a, 0.5), r() < 0.5);
   }
   const ws = t.wainscot;
   if (ws) {
+    const c = ws.c ?? shade(base, 0.7);
     const y0 = h - 5 - ws.h;
     if (ws.kind === 'tile') {
       for (let y = y0; y < h - 5; y++)
         for (let x = 0; x < w; x++) {
           const grout = (y - y0) % 5 === 0 || x % 5 === 0;
           const chk = (Math.floor(x / 5) + Math.floor((y - y0) / 5)) % 2 === 0;
-          p.set(x, y, grout ? 0x9ab8c8 : chk ? ws.c : 0xc8e4f0);
+          p.set(x, y, grout ? 0x9ab8c8 : chk ? c : 0xc8e4f0);
         }
       p.hline(0, y0 - 1, w, 0x2a5a8a);
-      p.hline(0, y0 - 2, w, 0x2a5a8a);
-      p.hline(0, y0 - 3, w, INK);
+      p.hline(0, y0 - 2, w, INK);
     } else if (ws.kind === 'panel') {
-      p.rect(0, y0, w, ws.h, ws.c);
+      p.rect(0, y0, w, ws.h, c);
       p.hline(0, y0 - 1, w, INK);
       p.hline(0, y0, w, TRIM);
       p.hline(0, y0 + 1, w, TRIM_D);
-      for (let x = 4; x + 16 < w; x += 20) {
-        p.rect(x, y0 + 5, 16, ws.h - 9, shade(ws.c, 0.82));
-        p.hline(x, y0 + 5, 16, shade(ws.c, 0.6));
-        p.vline(x, y0 + 5, ws.h - 9, shade(ws.c, 0.6));
-        p.hline(x, y0 + ws.h - 5, 16, mix(ws.c, 0xffffff, 0.25));
-        p.vline(x + 15, y0 + 5, ws.h - 9, mix(ws.c, 0xffffff, 0.25));
+      for (let x = 4; x + 14 < w; x += 18) {
+        p.rect(x, y0 + 4, 14, ws.h - 7, shade(c, 0.82));
+        p.hline(x, y0 + 4, 14, shade(c, 0.6));
+        p.vline(x, y0 + 4, ws.h - 7, shade(c, 0.6));
+        p.hline(x, y0 + ws.h - 4, 14, mix(c, 0xffffff, 0.25));
+        p.vline(x + 13, y0 + 4, ws.h - 7, mix(c, 0xffffff, 0.25));
+      }
+    } else if (ws.kind === 'keys') {
+      // Piano keys: white keys with black keys on top.
+      p.rect(0, y0, w, ws.h, 0xf4f0e8);
+      p.hline(0, y0 - 1, w, INK);
+      for (let x = 0; x < w; x++) if (x % 6 === 0) p.vline(x, y0, ws.h, 0x9a9a9a);
+      for (let x = 0; x < w; x += 6) {
+        const k = Math.floor(x / 6) % 7;
+        if (k === 2 || k === 6) continue;
+        p.rect(x + 4, y0, 3, Math.round(ws.h * 0.6), INK);
       }
     } else {
-      // Hazard stripe band.
-      for (let y = h - 5 - ws.h; y < h - 5 - ws.h + 6; y++) for (let x = 0; x < w; x++) p.set(x, y, (x + y) % 8 < 4 ? ws.c : INK);
+      for (let y = y0; y < y0 + 5; y++) for (let x = 0; x < w; x++) p.set(x, y, (x + y) % 8 < 4 ? c : INK);
     }
   }
   // Skirting board.
@@ -416,81 +585,175 @@ function drawRoomWall(id: string, w: number, h: number): Px {
   p.hline(0, h - 5, w, mix(sk, 0xffffff, 0.35));
   p.hline(0, h - 2, w, shade(sk, 0.7));
   p.hline(0, h - 1, w, shade(sk, 0.5));
-  roomSpecifics(id, p, w, h);
+  t.special?.(p, w, h, base, r);
   return p;
 }
 
-function roomSpecifics(id: string, p: Px, w: number, h: number) {
-  switch (id) {
-    case 'kitchen': {
-      drawWindow(p, 14, 22, 26, 18, 0xe85050, true);
-      // Tile backsplash and upper cabinets.
-      for (let y = 38; y < h - 24; y++)
-        for (let x = 102; x < 142; x++) p.set(x, y, (x % 4 === 0 || y % 4 === 0) ? 0x9ab8b8 : (x + y) % 8 < 4 ? 0xf0f0e0 : 0x8ad0c8);
-      for (let x = 102; x < 142; x += 13) {
-        p.box(x + 1, 20, 12, 14, 0xd8a060);
-        p.rect(x + 3, 22, 8, 10, 0xc08a4a);
-        p.set(x + (x % 2 ? 10 : 3), 30, TRIM);
-      }
-      break;
-    }
-    case 'garage': {
-      drawWindow(p, 18, 20, 34, 10);
-      // Pegboard with tools.
-      p.box(76, 24, 34, 20, 0xc8a070);
-      for (let y = 26; y < 43; y += 3) for (let x = 78; x < 109; x += 3) p.set(x, y, 0x8a6a40);
-      p.rect(80, 27, 2, 10, WOOD_D); p.rect(78, 27, 6, 3, 0x8a8a9a); // hammer
-      p.rect(88, 28, 2, 12, 0xb0b8c8); p.rect(87, 27, 4, 2, 0xb0b8c8); // wrench
-      p.rect(95, 28, 10, 4, 0xc8d0d8); p.rect(103, 28, 3, 8, 0xd04040); // saw
-      for (let x = 96; x < 104; x += 2) p.set(x, 32, 0x8a8a9a);
-      // Oil stain.
-      for (let y = h - 9; y < h - 6; y++) for (let x = 30; x < 58; x++) if (dith(x, y, 0.4)) p.set(x, y, shade(0x6a7a8a, 0.6));
-      break;
-    }
-    case 'bedroom':
-      drawWindow(p, 52, 22, 24, 18, 0x6a58b8, true);
-      break;
-    case 'kids': {
-      drawWindow(p, 106, 24, 22, 16, 0xe8504a);
-      // Bunting.
-      const cols = [0xe8504a, 0xf2c94c, 0x4a8be8, 0xffffff, 0x5cc85a];
-      for (let x = 2, i = 0; x < w - 6; x += 8, i++) {
-        p.hline(x, 18 + (i % 2), 8, INK);
-        for (let k = 0; k < 4; k++) p.rect(x + 1 + k, 19 + k, 6 - 2 * k, 1, cols[i % cols.length]);
-      }
-      break;
-    }
-    case 'attic': {
-      // Rafters in the top corners, round window, cobwebs.
-      for (let i = 0; i < 30; i++) {
-        p.rect(i, 30 - i, 5, 1, WOOD_D);
-        p.set(i + 5, 30 - i, INK);
-        p.rect(w - 5 - i, 30 - i, 5, 1, WOOD_D);
-        p.set(w - 6 - i, 30 - i, INK);
-      }
-      p.disc(76, 30, 11, INK);
-      p.disc(76, 30, 10, TRIM_D);
-      p.disc(76, 30, 8, 0x2a3a90);
-      for (let y = 22; y < 39; y++) for (let x = 68; x < 85; x++) if ((x - 76) ** 2 + (y - 30) ** 2 <= 66 && dith(x, y, (y - 22) / 16)) p.set(x, y, WIN);
-      p.vline(76, 22, 17, TRIM_D);
-      p.hline(68, 30, 17, TRIM_D);
-      p.set(72, 26, 0xffffff);
-      for (const [cx, dir] of [
-        [0, 1],
-        [w - 1, -1],
-      ] as const) {
-        for (let k = 0; k < 12; k++) {
-          p.set(cx + dir * k, 33 + k, 0xc8c8d8);
-          p.set(cx + dir * Math.round(k * 0.5), 33 + k, 0xc8c8d8);
-        }
-        for (let k = 0; k < 8; k++) p.set(cx + dir * k, 38 + Math.round(k * 0.3), 0xc8c8d8);
-      }
-      break;
-    }
-    case 'storage':
-      drawWindow(p, 118, 24, 14, 12);
-      break;
+// Theme dressing painted into the wallpaper (behind furniture and players).
+function backsplash(p: Px, w: number, h: number) {
+  const x0 = Math.max(4, w - 52);
+  for (let y = h - 30; y < h - 18; y++)
+    for (let x = x0; x < x0 + 40; x++) p.set(x, y, x % 4 === 0 || y % 4 === 0 ? 0x9ab8b8 : (x + y) % 8 < 4 ? 0xf0f0e0 : 0x8ad0c8);
+  for (let x = x0; x < x0 + 39; x += 13) {
+    p.box(x + 1, 9, 11, 10, 0xd8a060);
+    p.rect(x + 3, 11, 7, 6, 0xc08a4a);
   }
+}
+function pegboard(p: Px, w: number) {
+  const x0 = Math.floor(w / 2) - 17;
+  p.box(x0, 12, 34, 18, 0xc8a070);
+  for (let y = 14; y < 29; y += 3) for (let x = x0 + 2; x < x0 + 33; x += 3) p.set(x, y, 0x8a6a40);
+  p.rect(x0 + 4, 15, 2, 10, WOOD_D);
+  p.rect(x0 + 2, 15, 6, 3, 0x8a8a9a);
+  p.rect(x0 + 12, 16, 2, 11, 0xb0b8c8);
+  p.rect(x0 + 19, 16, 10, 4, 0xc8d0d8);
+  p.rect(x0 + 27, 16, 3, 8, 0xd04040);
+}
+function bunting(p: Px, w: number) {
+  const cols = [0xe8504a, 0xf2c94c, 0x4a8be8, 0xffffff, 0x5cc85a];
+  for (let x = 2, i = 0; x < w - 6; x += 8, i++) {
+    p.hline(x, 15 + (i % 2), 8, INK);
+    for (let k = 0; k < 4; k++) p.rect(x + 1 + k, 16 + k, 6 - 2 * k, 1, cols[i % cols.length]);
+  }
+}
+function atticBits(p: Px, w: number) {
+  for (let i = 0; i < 20; i++) {
+    p.rect(i, 20 - i, 5, 1, WOOD_D);
+    p.set(i + 5, 20 - i, INK);
+    p.rect(w - 5 - i, 20 - i, 5, 1, WOOD_D);
+    p.set(w - 6 - i, 20 - i, INK);
+  }
+  const cx = Math.floor(w / 2);
+  p.disc(cx, 22, 8, INK);
+  p.disc(cx, 22, 7, TRIM_D);
+  p.disc(cx, 22, 5, 0x2a3a90);
+  p.vline(cx, 17, 11, TRIM_D);
+  p.hline(cx - 5, 22, 11, TRIM_D);
+}
+function pipes(p: Px, w: number, h: number) {
+  for (const y of [10, 16]) {
+    p.rect(0, y, w, 4, INK);
+    p.rect(0, y + 1, w, 2, y === 10 ? 0xb87a3a : 0x8a90a8);
+    for (let x = 12; x < w; x += 30) p.rect(x, y - 1, 3, 6, INK);
+  }
+  p.rect(w - 10, 18, 4, h - 24, INK);
+  p.rect(w - 9, 18, 2, h - 24, 0x8a90a8);
+}
+function ballPit(p: Px, w: number, h: number, _b: number, r: () => number) {
+  // The pit's netting wall and a deep heap of balls along the floor.
+  for (let y = h - 26; y < h - 14; y++) for (let x = 0; x < w; x++) if ((x + y) % 5 === 0 || (x - y + 500) % 5 === 0) p.set(x, y, 0xffffff, 120);
+  p.rect(0, h - 27, w, 2, 0x4a8be8);
+  const cols = [0xe8504a, 0xf2c94c, 0x4a8be8, 0x5cc85a, 0xc070ff, 0xff9a40];
+  for (let row = 0; row < 5; row++)
+    for (let x = (row % 2) * 2; x < w + 3; x += 4) {
+      const cy = h - 2 - row * 3 - Math.round(r() * 1.5);
+      const c = cols[Math.floor(r() * cols.length)];
+      p.rect(x - 1, cy - 1, 3, 3, INK);
+      p.set(x, cy, c);
+      p.set(x - 1, cy, c);
+      p.set(x, cy - 1, mix(c, 0xffffff, 0.5));
+    }
+}
+function castleTop(p: Px, w: number) {
+  for (let x = 0; x < w; x++) {
+    const m = x % 12 < 6;
+    for (let y = 0; y < (m ? 9 : 4); y++) p.set(x, y, y === (m ? 8 : 3) ? INK : (x % 12) % 6 === 1 ? 0xfff0a0 : 0xe8504a);
+  }
+}
+function bubbles(p: Px, w: number, h: number, _b: number, r: () => number) {
+  for (let k = 0; k < w / 6; k++) {
+    const x = Math.floor(r() * w);
+    const y = Math.floor(r() * (h - 10));
+    p.set(x, y, 0xc8f0ff);
+    p.set(x + 1, y - 1, 0xffffff, 150);
+  }
+}
+function discoFloor(p: Px, w: number, h: number) {
+  const cols = [0xff4080, 0x40c0ff, 0xffe040, 0x60ff80];
+  for (let x = 0; x < w; x++) for (let y = h - 6; y < h; y++) p.set(x, y, (x + 1) % 8 === 0 ? INK : cols[Math.floor(x / 8) % 4]);
+  for (let k = 0; k < 6; k++) {
+    const x = Math.floor((w * (k + 0.5)) / 6);
+    for (let y = 4; y < h - 8; y++) if ((y + k) % 3 === 0 && Math.abs((x - w / 2) * (y / h)) < w) p.set(x + Math.round((x - w / 2) * (y / h) * 0.6), y, cols[k % 4], 110);
+  }
+}
+function neon(p: Px, w: number) {
+  for (let x = 6; x < w - 6; x++) {
+    p.set(x, 9, 0xff60e0);
+    p.set(x, 10, 0xffb0f0);
+  }
+}
+function wallDoors(p: Px, w: number, h: number, base: number) {
+  const cols = [0xa8302a, 0x4a8be8, 0x5cc85a, 0xf2c94c, 0xc070ff, 0xffffff];
+  let i = 0;
+  for (let x = 4; x + 14 < w; x += 18, i++) {
+    const dh = 20 + ((i * 7) % 3) * 6;
+    const y = (i % 2 ? 10 : h - 6 - dh) + (i % 3);
+    const c = cols[i % cols.length];
+    p.rect(x - 1, y - 1, 16, dh + 2, INK);
+    p.rect(x, y, 14, dh, c);
+    p.rect(x + 2, y + 2, 10, dh / 2 - 3, shade(c, 0.85));
+    p.rect(x + 2, y + dh / 2 + 1, 10, dh / 2 - 3, shade(c, 0.85));
+    p.rect(x + 11, y + dh / 2, 2, 2, TRIM);
+    p.hline(x, y, 14, mix(c, base, 0.2));
+  }
+}
+function coats(p: Px, w: number) {
+  p.rect(0, 9, w, 2, 0xb0b8c8);
+  p.hline(0, 11, w, INK);
+  const cols = [0x8a3a3a, 0x3a5a8a, 0x5a7a3a, 0x8a6a2a, 0x6a3a7a];
+  for (let x = 4, i = 0; x < w - 10; x += 12, i++) {
+    const c = cols[i % cols.length];
+    p.line(x + 5, 11, x + 5, 13, INK);
+    p.rect(x, 13, 11, 22 + (i % 3) * 3, INK);
+    p.rect(x + 1, 14, 9, 20 + (i % 3) * 3, c);
+    p.vline(x + 5, 14, 20, shade(c, 0.7));
+    p.rect(x + 1, 14, 2, 4, mix(c, 0xffffff, 0.3));
+  }
+}
+function fridgeShelves(p: Px, w: number, h: number) {
+  for (const y of [14, 30]) {
+    p.rect(0, y, w, 3, 0xe8f4fa);
+    p.hline(0, y + 3, w, 0x8aa0b8);
+    p.hline(0, y - 1, w, INK);
+  }
+  // Frost in the corners and a jar on each shelf.
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 10 - y; x++) p.set(x, h - 7 - y, 0xffffff, 140);
+  for (let x = 8; x < w - 10; x += 26) {
+    p.box(x, 7, 7, 7, 0xe8504a);
+    p.rect(x, 6, 7, 2, 0xf2c94c);
+    p.box(x + 12, 22, 6, 8, 0x5cc85a);
+  }
+}
+function bathWater(p: Px, w: number, h: number) {
+  for (let y = h - 14; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const top = h - 14 + Math.round(Math.sin(x / 3) * 1);
+      if (y < top) continue;
+      p.set(x, y, y === top ? 0xc8f0ff : dith(x, y, (y - top) / 14) ? 0x2a6ab8 : 0x4a9ae8);
+    }
+}
+function fairyLights(p: Px, w: number) {
+  const cols = [0xfff0a0, 0xff9ad0, 0x9ae0ff];
+  for (let x = 0; x < w; x++) {
+    const y = 8 + Math.round(Math.abs(Math.sin(x / 9)) * 5);
+    p.set(x, y, 0x3a2a40);
+    if (x % 6 === 3) {
+      p.set(x, y + 1, cols[(x / 6) % 3 | 0]);
+      p.set(x, y + 2, cols[(x / 6) % 3 | 0]);
+    }
+  }
+}
+function jellyShine(p: Px, w: number, h: number) {
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((x + Math.round(Math.sin(y / 5) * 3)) % 20 === 0) p.set(x, y, 0xffb0b0, 120);
+}
+function moonWindow(p: Px, w: number) {
+  const x = Math.floor(w * 0.6);
+  p.disc(x, 18, 9, INK);
+  p.disc(x, 18, 8, 0x0a0a20);
+  p.disc(x - 2, 17, 4, 0x3a7ae8);
+  p.rect(x - 3, 15, 3, 2, 0x5cc85a);
+  p.set(x + 4, 13, 0xffffff);
+  p.set(x - 5, 22, 0xffffff);
 }
 
 /** Behind-the-wallpaper layer: studs and lath over a dark cavity. */
@@ -502,12 +765,11 @@ function drawBacking(p: Px, x0: number, y0: number, w: number, h: number, r: () 
       else if (y % 4 === 3) p.set(x, y, CAVITY);
       else p.set(x, y, (Math.floor(x / 23) + Math.floor(y / 4)) % 3 === 0 ? shade(LATH, 0.85) : LATH);
     }
-  // Missing lath strips let the night show through.
   for (let k = 0; k < (w * h) / 600; k++) {
     const x = x0 + Math.floor(r() * w);
     const y = y0 + Math.floor(r() * (h / 4)) * 4;
     const len = 4 + Math.floor(r() * 8);
-    for (let i = 0; i < len; i++) if (((x + i) % 16) >= 3 && x + i < x0 + w) for (let yy = y; yy < y + 3; yy++) p.set(x + i, yy, CAVITY);
+    for (let i = 0; i < len; i++) if ((x + i) % 16 >= 3 && x + i < x0 + w) for (let yy = y; yy < y + 3; yy++) p.set(x + i, yy, CAVITY);
   }
 }
 
@@ -516,14 +778,6 @@ export interface HoleSpan {
   x0: number;
   x1: number;
   y: number;
-}
-
-const staticHouse = new Map<string, Px>();
-
-function roomBox(col: number, floor: number) {
-  const x0 = COL_X[col] + (col === 0 ? 0 : WALL / 2);
-  const x1 = COL_X[col + 1] - (col === 2 ? 0 : WALL / 2);
-  return { x0, x1, top: FLOOR_Y[floor] - ROOM_INNER_H, bottom: FLOOR_Y[floor] };
 }
 
 /** Plank floor + slab face, drawn into p at world coords. */
@@ -544,91 +798,95 @@ function drawSlab(p: Px, y: number, x0: number, x1: number, ground: boolean) {
   }
 }
 
-function buildStatic(): { front: Px; back: Px } {
-  const front = new Px(480, 270);
-  const back = new Px(480, 270);
-  const r = rng(hashStr('house-backing'));
-  // Rooms.
-  for (let f = 0; f < 3; f++)
-    for (let c = 0; c < 3; c++) {
-      const b = roomBox(c, f);
-      const id = ['kitchen', 'living', 'garage', 'bedroom', 'bathroom', 'kids', 'attic', 'study', 'storage'][f * 3 + c];
-      front.blit(drawRoomWall(id, b.x1 - b.x0, b.bottom - b.top), b.x0, b.top);
-      drawBacking(back, b.x0, b.top, b.x1 - b.x0, b.bottom - b.top, r);
-    }
-  // Interior walls (door gaps stay open; door art is separate).
-  for (let f = 0; f < 3; f++) {
-    const top = FLOOR_Y[f] - ROOM_INNER_H;
-    for (const wx of [COL_X[1], COL_X[2]]) {
-      const x = wx - WALL / 2;
-      const hh = ROOM_INNER_H - DOOR_H;
-      for (let y = top; y < top + hh; y++) {
-        front.set(x, y, INK);
-        front.set(x + 1, y, mix(PLASTER, 0xffffff, 0.2));
-        front.set(x + 2, y, PLASTER);
-        front.set(x + 3, y, INK);
-        back.set(x, y, INK);
-        back.set(x + 1, y, STUD);
-        back.set(x + 2, y, shade(STUD, 0.7));
-        back.set(x + 3, y, INK);
+/** Eave trim along a roof slab (the ceiling of a top-most room). */
+function drawEave(p: Px, y: number, x0: number, x1: number) {
+  for (let x = x0; x < x1; x++) {
+    p.set(x, y, INK);
+    p.set(x, y + 1, TRIM);
+    p.set(x, y + 2, TRIM_D);
+    p.set(x, y + 3, INK);
+    p.set(x, y + 4, x % 16 < 2 ? INK : SLABC);
+    p.set(x, y + 5, shade(SLABC, 0.7));
+  }
+}
+
+/** A shingled gable over one cell, its base on the eave at `y`. */
+function drawGable(front: Px, back: Px, x0: number, x1: number, y: number, chimney: boolean) {
+  const cx = (x0 + x1) / 2;
+  const half = (x1 - x0) / 2 + 2;
+  if (chimney) {
+    const bx = Math.round(cx + half * 0.4);
+    for (let x = bx; x < bx + 9; x++)
+      for (let yy = y - ROOF_H - 2; yy < y - 4; yy++) {
+        const brick = yy % 4 === 0 || (x + (Math.floor(yy / 4) % 2) * 3) % 6 === 0;
+        front.set(x, yy, x === bx || x === bx + 8 ? INK : brick ? 0x5a2a2a : 0x9a4a3a);
       }
-      front.rect(x, top + hh - 1, 4, 1, INK);
-    }
+    front.rect(bx - 1, y - ROOF_H - 3, 11, 2, INK);
   }
-  // Floor slabs (full; holes are punched per build).
-  for (let f = 0; f < 3; f++) {
-    drawSlab(front, FLOOR_Y[f], 4, 476, f === 0);
-    for (let y = FLOOR_Y[f]; y < FLOOR_Y[f] + SLAB; y++)
-      for (let x = 4; x < 476; x++) back.set(x, y, x % 16 < 3 ? shade(STUD, 0.6) : (y + x) % 2 ? CAVITY : 0x2a1a20);
-  }
-  // Outer walls: clapboard siding.
-  for (const x0 of [0, 472]) {
-    for (let y = ROOF_Y; y < FLOOR_Y[0] + SLAB; y++)
-      for (let x = x0; x < x0 + 8; x++) {
-        const edge = x0 === 0 ? x === 0 : x === 479;
-        const inner = x0 === 0 ? x === 7 : x === 472;
-        const row = (y - ROOF_Y) % 5;
-        front.set(x, y, edge || inner ? INK : row === 4 ? shade(SIDING, 0.6) : row === 0 ? mix(SIDING, 0xffffff, 0.25) : SIDING);
-        back.set(x, y, edge || inner ? INK : (y % 16) < 3 ? STUD : CAVITY);
-      }
-  }
-  // Roof: shingled gable, chimney, fascia and the attic ceiling beam.
-  const peakY = 3;
-  const eaveY = ROOF_Y;
-  for (let x = 372; x < 386; x++)
-    for (let y = 1; y < 16; y++) {
-      const brick = (y % 4 === 0) || ((x + (Math.floor(y / 4) % 2) * 3) % 6 === 0);
-      front.set(x, y, x === 372 || x === 385 ? INK : brick ? 0x5a2a2a : 0x9a4a3a);
-    }
-  front.rect(370, 0, 18, 2, INK);
-  front.rect(371, 1, 16, 1, 0x8a8a9a);
-  for (let y = peakY; y < eaveY; y++) {
-    const hw = Math.round(((y - peakY + 1) / (eaveY - peakY)) * 248);
-    const band = Math.floor((y - peakY) / 4);
-    for (let x = Math.max(0, 240 - hw); x < Math.min(480, 240 + hw); x++) {
+  for (let yy = y - ROOF_H; yy < y; yy++) {
+    const k = (yy - (y - ROOF_H) + 1) / ROOF_H;
+    const hw = Math.round(k * half);
+    const band = Math.floor((yy - (y - ROOF_H)) / 4);
+    for (let x = Math.round(cx - hw); x < Math.round(cx + hw); x++) {
       const off = (band % 2) * 4;
       const tile = Math.floor((x + off) / 8);
-      const rowY = (y - peakY) % 4;
+      const rowY = (yy - (y - ROOF_H)) % 4;
       const tc = (tile * 7 + band * 3) % 5 === 0 ? shade(ROOF, 0.85) : (tile + band) % 7 === 0 ? mix(ROOF, 0xffd0a0, 0.25) : ROOF;
       let c = rowY === 3 ? shade(ROOF, 0.55) : (x + off) % 8 === 0 && rowY < 3 ? shade(ROOF, 0.7) : rowY === 0 ? mix(tc, 0xffffff, 0.15) : tc;
-      if (x === Math.max(0, 240 - hw) || x === Math.min(480, 240 + hw) - 1) c = INK;
-      front.set(x, y, c);
-      back.set(x, y, (x % 12) < 2 ? WOOD_D : (y % 3 === 0 ? shade(WOOD, 0.6) : CAVITY));
+      if (x === Math.round(cx - hw) || x === Math.round(cx + hw) - 1) c = INK;
+      front.set(x, yy, c);
+      back.set(x, yy, x % 12 < 2 ? WOOD_D : yy % 3 === 0 ? shade(WOOD, 0.6) : CAVITY);
     }
   }
-  front.rect(228, peakY - 1, 24, 2, INK);
-  front.rect(230, peakY, 20, 1, shade(ROOF, 0.6));
-  for (let x = 0; x < 480; x++) {
-    front.set(x, eaveY, INK);
-    front.set(x, eaveY + 1, TRIM);
-    front.set(x, eaveY + 2, TRIM_D);
-    front.set(x, eaveY + 3, INK);
-    if (x >= 4 && x < 476) {
-      front.set(x, eaveY + 4, x % 16 < 2 ? INK : SLABC);
-      front.set(x, eaveY + 5, shade(SLABC, 0.7));
-    }
-    for (let y = eaveY; y < eaveY + SLAB; y++) back.set(x, y, (x % 16) < 3 ? STUD : CAVITY);
+  front.rect(Math.round(cx) - 2, y - ROOF_H - 1, 4, 2, INK);
+}
+
+const staticHouse = new Map<string, { front: Px; back: Px }>();
+
+/** Rooms, walls, slabs, roofs and the fixed parts of features, at world coords. */
+function buildStatic(L: Layout): { front: Px; back: Px } {
+  const front = new Px(480, 270);
+  const back = new Px(480, 270);
+  const r = rng(hashStr(`house-backing:${L.key}`));
+  for (const room of L.rooms) {
+    front.blit(drawRoomWall(room), room.x0, room.top);
+    drawBacking(back, room.x0, room.top, room.x1 - room.x0, room.bottom - room.top, r);
   }
+  // Floor slabs and roof eaves.
+  for (const s of L.slabs) {
+    if (s.roof) drawEave(front, s.y, s.x0 - 2, s.x1 + 2);
+    else drawSlab(front, s.y, s.x0, s.x1, s.ground);
+    for (let y = s.y; y < s.y + SLAB; y++)
+      for (let x = s.x0; x < s.x1; x++) back.set(x, y, x % 16 < 3 ? shade(STUD, 0.6) : (y + x) % 2 ? CAVITY : 0x2a1a20);
+  }
+  // Walls: plaster between rooms (behind the slabs), clapboard siding outside.
+  for (const wseg of L.walls) {
+    const xa = wseg.outside === -1 ? wseg.x - 6 : wseg.x - 2;
+    const xb = wseg.outside === 1 ? wseg.x + 6 : wseg.x + 2;
+    const gap = wseg.door ? [wseg.door.floor - DOOR_H, wseg.door.floor] : null;
+    for (let y = wseg.y0; y < wseg.y1; y++) {
+      if (gap && y >= gap[0] && y < gap[1]) continue;
+      for (let x = xa; x < xb; x++) {
+        if (wseg.outside) {
+          const edge = x === xa || x === xb - 1;
+          const row = (y - Y0) % 5;
+          front.set(x, y, edge ? INK : row === 4 ? shade(SIDING, 0.6) : row === 0 ? mix(SIDING, 0xffffff, 0.25) : SIDING);
+          back.set(x, y, edge ? INK : y % 16 < 3 ? STUD : CAVITY);
+        } else {
+          if (front.opaque(x, y) && L.slabs.some((s) => !s.roof && y >= s.y && y < s.y + SLAB && x >= s.x0 && x < s.x1)) continue;
+          const k = x - xa;
+          front.set(x, y, k === 0 || k === 3 ? INK : k === 1 ? mix(PLASTER, 0xffffff, 0.2) : PLASTER);
+          back.set(x, y, k === 0 || k === 3 ? INK : k === 1 ? STUD : shade(STUD, 0.7));
+        }
+      }
+    }
+    if (gap && !wseg.outside) front.rect(xa, gap[0] - 1, 4, 1, INK);
+  }
+  // Roofs over every top-most cell; one chimney per house.
+  const roofs = L.slabs.filter((s) => s.roof);
+  const chimneyAt = roofs.length ? hashStr(L.key) % roofs.length : -1;
+  roofs.forEach((s, i) => drawGable(front, back, s.x0, s.x1, s.y, i === chimneyAt));
+  drawFeatures(front, L);
   return { front, back };
 }
 
@@ -688,14 +946,16 @@ export class HouseCanvas {
   private img: ImageData;
   private ctx: CanvasRenderingContext2D;
 
-  constructor(private scene: Phaser.Scene, holes: HoleSpan[], key = 'house-base') {
-    if (!staticHouse.has('front')) {
-      const st = buildStatic();
-      staticHouse.set('front', st.front);
-      staticHouse.set('back', st.back);
+  constructor(private scene: Phaser.Scene, layout: Layout, holes: HoleSpan[], key = 'house-base') {
+    let st = staticHouse.get(layout.key);
+    if (!st) {
+      // One house per game: drop older ones.
+      staticHouse.clear();
+      st = buildStatic(layout);
+      staticHouse.set(layout.key, st);
     }
-    this.front = staticHouse.get('front')!.copy();
-    this.back = staticHouse.get('back')!.copy();
+    this.front = st.front.copy();
+    this.back = st.back.copy();
     this.sky = SPRITES.get('house-sky') ?? new Px(480, 270);
     // Punch meteor holes through the slabs, with splintered plank ends.
     for (const h of holes) {
@@ -1003,6 +1263,8 @@ export function makeHouseTextures(scene: Phaser.Scene): void {
   });
 
   makeFurniture(scene);
+  makeThemeFurniture(scene);
+  makeFeatureTextures(scene);
 }
 
 // ------------------------------------------------------------------ laundry chute
@@ -1535,6 +1797,10 @@ export interface DamageRoom {
   x1: number;
   top: number;
   bottom: number;
+  /** Wall colour (theme base), for torn wallpaper edges. */
+  color?: number;
+  /** Big holes show the night sky (room touches the outside) rather than a cavity. */
+  outer?: boolean;
 }
 
 function blob(r: () => number, rad: number) {
@@ -1601,15 +1867,15 @@ function rubble(p: Px, r: () => number, cx: number, base: number, w: number, h: 
 const damageCache = new Map<string, [Px, Px]>();
 
 export function roomDamagePx(room: DamageRoom, level: number, keep: KeepClear[]): [Px, Px] {
-  const ck = `${room.id}:${level}:${hashStr(JSON.stringify(keep))}`;
+  const ck = `${room.id}:${room.x0},${room.top},${room.x1 - room.x0}x${room.bottom - room.top}:${level}:${hashStr(JSON.stringify(keep))}`;
   const hit = damageCache.get(ck);
   if (hit) return hit;
   const W = room.x1 - room.x0;
   const H = room.bottom - room.top;
   const wall = new Px(W, H);
   const front = new Px(W, H);
-  const theme = ROOM_THEMES[room.id] ?? ROOM_THEMES.living;
-  const outer = room.col !== 1 || room.floor === 2;
+  const theme = { base: room.color ?? 0x6a58b8 };
+  const outer = room.outer ?? true;
 
   for (let L = 1; L <= level; L++) {
     const r = rng(hashStr(`${room.id}:dmg:${L}`));
@@ -1737,4 +2003,625 @@ export function drawRoomDamage(over: Px, room: DamageRoom, level: number, keep: 
   if (level <= 0) return;
   const [wall, front] = roomDamagePx(room, Math.min(3, level), keep);
   over.blit(part === 'wall' ? wall : front, room.x0, room.top);
+}
+
+// ------------------------------------------------------------------ features (baked parts)
+const BRASS = 0xf0d070;
+const BRASS_D = 0xb08a30;
+const SLIDE_C = 0xffb040;
+const LIFT_C = 0x8ad0ff;
+const PORTAL_C = 0xc060ff;
+
+function drawFeatures(p: Px, L: Layout) {
+  for (const pole of L.poles) drawPole(p, pole.x, L.byId[pole.upper].top + 2, pole.topY, pole.bottomY);
+  for (const s of L.slides) drawSlideArt(p, s, L.byId[s.lower].top);
+  for (const lf of L.lifts) drawShaft(p, lf);
+  for (const t of L.tramps) drawTrampHatch(p, t);
+  for (const pt of L.portals) for (const e of pt.ends) drawFrame(p, e.x, e.floor);
+  for (const sw of L.switches) {
+    p.rect(sw.x - 4, sw.y - 6, 9, 12, INK);
+    p.rect(sw.x - 3, sw.y - 5, 7, 10, 0xf0e8d0);
+    p.hline(sw.x - 3, sw.y + 4, 7, 0xb8b0a0);
+  }
+  for (const tr of L.traps) drawRug(p, tr);
+}
+
+function drawPole(p: Px, x: number, top: number, upperFloor: number, bottom: number) {
+  // Hole in the upper floor the pole drops through.
+  for (let y = upperFloor; y < upperFloor + SLAB; y++)
+    for (let xx = x - 5; xx <= x + 5; xx++) p.set(xx, y, xx === x - 5 || xx === x + 5 ? INK : 0x05030a);
+  p.hline(x - 6, upperFloor, 13, INK);
+  // Ceiling bracket.
+  p.rect(x - 4, top - 2, 9, 3, INK);
+  p.rect(x - 3, top - 1, 7, 1, 0x8a8a9a);
+  for (let y = top; y < bottom; y++) {
+    p.set(x - 2, y, INK);
+    p.set(x - 1, y, mix(BRASS, 0xffffff, 0.5));
+    p.set(x, y, BRASS);
+    p.set(x + 1, y, BRASS_D);
+    p.set(x + 2, y, INK);
+  }
+  // Landing mat.
+  p.rect(x - 7, bottom - 2, 15, 2, INK);
+  p.rect(x - 6, bottom - 2, 13, 1, 0xe8504a);
+}
+
+function drawSlideArt(p: Px, s: SlideGeo, lowerTop: number) {
+  const N = 240;
+  let lastX = -999;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const e = 1 - (1 - t) * (1 - t);
+    const x = Math.round(s.x0 + (s.x1 - s.x0) * t);
+    const y = Math.round(s.y0 + (s.y1 - s.y0) * e);
+    p.set(x, y - 3, INK);
+    p.set(x, y - 2, mix(SLIDE_C, 0xffffff, 0.45));
+    p.set(x, y - 1, SLIDE_C);
+    p.set(x, y, SLIDE_C);
+    p.set(x, y + 1, shade(SLIDE_C, 0.7));
+    p.set(x, y + 2, INK);
+    // Posts down to the lower floor every 14 px.
+    if (x !== lastX && (x - s.x0) % 14 === 7 && y > lowerTop + 2 && y < s.y1 - 6) {
+      for (let yy = y + 3; yy < s.y1; yy++) {
+        p.set(x, yy, INK);
+        p.set(x + s.dir, yy, WOOD);
+      }
+    }
+    lastX = x;
+  }
+  // Slot in the upper floor and a hazard lip marking the way in.
+  for (let y = s.y0; y < s.y0 + SLAB; y++) for (let x = s.x0 - 4; x <= s.x0 + 4; x++) if (!(y > s.y0 + 1 && Math.abs(x - s.x0) < 3)) p.set(x, y, 0x05030a);
+  for (let x = s.x0 - 7; x <= s.x0 + 7; x++) {
+    p.set(x, s.y0 - 1, (x + s.y0) % 4 < 2 ? HAZARD : INK);
+  }
+}
+
+function drawShaft(p: Px, lf: LiftGeo) {
+  const top = lf.stops[0].floor - 34;
+  const bot = lf.stops[lf.stops.length - 1].floor;
+  for (let y = top; y < bot; y++)
+    for (let x = lf.x - 8; x <= lf.x + 8; x++) {
+      const edge = x === lf.x - 8 || x === lf.x + 8;
+      const rail = x === lf.x - 6 || x === lf.x + 6;
+      p.set(x, y, edge ? INK : rail ? shade(LIFT_C, 0.55) : y % 10 === 0 ? 0x2a3450 : 0x1a2238);
+    }
+  p.rect(lf.x - 9, top - 3, 19, 3, INK);
+  p.rect(lf.x - 8, top - 2, 17, 1, 0x8a8a9a);
+  p.vline(lf.x, top, 4, 0xb0b8c8);
+  for (const s of lf.stops) {
+    const y = s.floor;
+    // Hatch frame at each stop, with a hazard header and a call plate.
+    p.rect(lf.x - 10, y - 25, 21, 2, INK);
+    for (let x = lf.x - 9; x <= lf.x + 9; x++) p.set(x, y - 24, (x + y) % 4 < 2 ? HAZARD : INK);
+    for (let yy = y - 23; yy < y; yy++) {
+      p.set(lf.x - 10, yy, INK);
+      p.set(lf.x - 9, yy, LIFT_C);
+      p.set(lf.x + 9, yy, LIFT_C);
+      p.set(lf.x + 10, yy, INK);
+    }
+    p.rect(lf.x + 11, y - 17, 5, 8, INK);
+    p.rect(lf.x + 12, y - 16, 3, 6, 0xd8d8e0);
+    p.set(lf.x + 13, y - 15, 0x5cc85a);
+    p.set(lf.x + 13, y - 12, 0xe8504a);
+  }
+}
+
+function drawTrampHatch(p: Px, t: TrampGeo) {
+  // An open hatch in the ceiling (the floor above), lid hinged up.
+  for (let y = t.ceilY; y < t.ceilY + SLAB; y++) for (let x = t.x - 9; x <= t.x + 9; x++) p.set(x, y, Math.abs(x - t.x) === 9 ? INK : 0x05030a);
+  for (let x = t.x - 10; x <= t.x + 10; x++) p.set(x, t.ceilY + SLAB, (x + 1) % 4 < 2 ? 0xff7aa0 : INK);
+  // Dashed "boing" arrow from the bed up to the hatch.
+  const yTop = t.ceilY + SLAB + 3;
+  for (let y = yTop + 5; y < t.bedY - 16; y++) if (y % 5 < 3) {
+    p.set(t.x, y, HAZARD);
+    p.set(t.x - 1, y, INK);
+    p.set(t.x + 1, y, INK);
+  }
+  rows(p, t.x - 3, yTop, ['...k...', '..kyk..', '.kyyyk.', 'kyyyyyk', 'kkkykkk'], { k: INK, y: HAZARD });
+}
+
+function drawFrame(p: Px, x: number, floor: number) {
+  const y0 = floor - 32;
+  p.rect(x - 10, y0 - 1, 21, 26, INK);
+  p.rect(x - 9, y0, 19, 24, 0xd8a840);
+  p.rect(x - 9, y0, 19, 1, 0xffe08a);
+  p.rect(x - 9, y0 + 23, 19, 1, 0x8a6020);
+  p.rect(x - 7, y0 + 2, 15, 20, INK);
+  p.rect(x - 6, y0 + 3, 13, 18, 0x2a0a4a);
+  for (const [dx, dy] of [[-9, 0], [9, 0], [-9, 23], [9, 23]]) p.set(x + dx, y0 + dy, 0xffffff);
+}
+
+function drawRug(p: Px, tr: TrapGeo) {
+  const y = tr.floor;
+  // Trapdoor seams in the slab under the rug.
+  for (let yy = y; yy < y + SLAB; yy++) {
+    p.set(tr.x0, yy, INK);
+    p.set(tr.x1 - 1, yy, INK);
+  }
+  for (let x = tr.x0; x < tr.x1; x++) {
+    p.set(x, y - 3, INK);
+    p.set(x, y - 2, x % 4 < 2 ? 0xe05050 : 0xffe08a);
+    p.set(x, y - 1, 0xa83a3a);
+  }
+  p.set(tr.x0, y - 2, INK);
+  p.set(tr.x1 - 1, y - 2, INK);
+  // Lever base.
+  p.rect(tr.leverX - 3, y - 3, 7, 3, INK);
+  p.rect(tr.leverX - 2, y - 2, 5, 1, 0x8a8a9a);
+}
+
+/** Textures for animated feature parts (separate images over the baked house). */
+function makeFeatureTextures(scene: Phaser.Scene) {
+  make(scene, 'portal-swirl', 13, 18, (p) => {
+    for (let y = 0; y < 18; y++)
+      for (let x = 0; x < 13; x++) {
+        const dx = (x - 6) / 6.5;
+        const dy = (y - 8.5) / 9;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > 1) continue;
+        const a = Math.atan2(dy, dx) + d * 7;
+        const band = Math.floor(((a / (Math.PI * 2)) * 3 + 30) % 3);
+        p.set(x, y, d < 0.2 ? 0xffffff : band === 0 ? PORTAL_C : band === 1 ? 0x6a2ab8 : 0xff9af0);
+      }
+  });
+  make(scene, 'tramp-bed', 28, 10, (p) => {
+    p.box(2, 1, 24, 3, 0xff7aa0);
+    p.hline(3, 2, 22, 0xffc0d8);
+    for (let x = 4; x < 25; x += 4) p.line(x, 4, x + 1, 7, 0xb0b8c8);
+    p.box(1, 7, 3, 2, 0x5a5a6a);
+    p.box(24, 7, 3, 2, 0x5a5a6a);
+  });
+  make(scene, 'tramp-bed-boing', 28, 10, (p) => {
+    for (let x = 2; x < 26; x++) {
+      const sag = Math.round(Math.sin(((x - 2) / 24) * Math.PI) * 3);
+      p.set(x, 2 + sag, INK);
+      p.set(x, 3 + sag, 0xff7aa0);
+      p.set(x, 4 + sag, 0xff7aa0);
+      p.set(x, 5 + sag, INK);
+    }
+    p.box(1, 7, 3, 2, 0x5a5a6a);
+    p.box(24, 7, 3, 2, 0x5a5a6a);
+  });
+  make(scene, 'lift-car', 15, 22, (p) => {
+    p.box(1, 1, 13, 20, 0x4a6a9a);
+    p.rect(3, 3, 9, 14, 0x1a2238);
+    for (let x = 4; x < 12; x += 2) p.vline(x, 3, 14, LIFT_C);
+    p.rect(1, 18, 13, 2, 0x8ad0ff);
+    p.vline(7, 0, 1, INK);
+  });
+  make(scene, 'bookcase-door', 12, DOOR_H + 3, (p) => {
+    p.box(1, 1, 10, DOOR_H + 1, WOOD_D);
+    const cols = [0xe8504a, 0x4a8be8, 0xf2c94c, 0x5cc85a, 0xc070ff];
+    for (let s = 0; s < 4; s++) {
+      const y = 3 + s * 7;
+      p.rect(2, y, 8, 6, shade(WOOD_D, 0.55));
+      for (let x = 2, i = s; x < 10; x += 2, i++) p.rect(x, y + 6 - (4 + (i % 2)), 2, 4 + (i % 2), cols[i % cols.length]);
+      p.hline(2, y + 6, 8, WOOD);
+    }
+  });
+  make(scene, 'switch-on', 3, 6, (p) => {
+    p.rect(0, 0, 3, 6, INK);
+    p.rect(1, 1, 1, 2, 0xffe060);
+  });
+  make(scene, 'switch-off', 3, 6, (p) => {
+    p.rect(0, 0, 3, 6, INK);
+    p.rect(1, 3, 1, 2, 0x8a8a9a);
+  });
+  make(scene, 'lever', 9, 14, (p) => {
+    p.line(4, 13, 4, 3, INK);
+    p.line(5, 13, 5, 3, 0xd8d8e0);
+    p.disc(4, 2, 2, 0xe05050);
+    p.outline();
+  });
+  make(scene, 'trap-open', 26, 10, (p) => {
+    for (let y = 0; y < SLAB; y++) for (let x = 0; x < 26; x++) p.set(x, y, 0x05030a);
+    // Two flaps hanging down.
+    for (let y = 0; y < 10; y++) {
+      p.set(0, y, INK);
+      p.set(1, y, 0xa83a3a);
+      p.set(2, y, INK);
+      p.set(23, y, INK);
+      p.set(24, y, 0xa83a3a);
+      p.set(25, y, INK);
+    }
+  });
+  make(scene, 'lamp-disco', 13, 16, (p) => {
+    p.vline(6, 0, 5, INK);
+    p.disc(6, 10, 5, 0xc8d0e0);
+    for (let y = 5; y < 16; y++) for (let x = 1; x < 12; x++) if (p.opaque(x, y) && (x + y) % 3 === 0) p.set(x, y, (x * y) % 2 ? 0xffffff : 0x8a90a8);
+    p.set(4, 8, 0xff60c0);
+    p.set(8, 12, 0x60e0ff);
+    p.outline();
+  });
+}
+
+/** Furniture for the procedural room themes (sensible and goofy). */
+function makeThemeFurniture(scene: Phaser.Scene) {
+  const F = (key: string, w: number, h: number, draw: (p: Px) => void) => make(scene, key, w, h, draw, true, false);
+  const W_ = (key: string, w: number, h: number, draw: (p: Px) => void) => make(scene, key, w, h, draw, false, false);
+  const COLS = [0xe8504a, 0x4a8be8, 0xf2c94c, 0x5cc85a, 0xc070ff, 0xff9a40];
+
+  F('washer', 18, 20, (p) => {
+    p.box(1, 1, 16, 18, 0xe8ecf8);
+    p.rect(2, 2, 14, 3, 0xc0c8dc);
+    p.set(4, 3, 0x5cc85a);
+    p.disc(9, 12, 5, INK);
+    p.disc(9, 12, 4, 0x58b8f8);
+    p.rect(7, 11, 3, 2, 0xe8504a);
+  });
+  F('jars', 22, 30, (p) => {
+    for (const x of [1, 19]) p.box(x, 1, 2, 28, WOOD_D);
+    for (const y of [9, 19, 28]) p.box(1, y, 20, 1, WOOD);
+    for (let s = 0; s < 3; s++)
+      for (let k = 0; k < 3; k++) {
+        const x = 4 + k * 5;
+        const y = 2 + s * 10;
+        p.box(x, y + 2, 4, 5, COLS[(s * 3 + k) % COLS.length]);
+        p.rect(x, y + 1, 4, 1, 0xb0b8c8);
+      }
+  });
+  F('table', 34, 16, (p) => {
+    p.box(5, 5, 24, 2, WOOD);
+    p.box(8, 7, 2, 8, WOOD_D);
+    p.box(24, 7, 2, 8, WOOD_D);
+    p.box(14, 2, 6, 3, 0xffffff);
+    p.set(16, 1, 0xe8504a);
+    for (const x of [1, 30]) {
+      p.box(x, 1, 2, 14, WOOD_D);
+      p.box(x === 1 ? 1 : 28, 8, 5, 2, WOOD);
+    }
+  });
+  F('coatrack', 12, 34, (p) => {
+    p.vline(6, 3, 29, INK);
+    p.vline(5, 3, 29, WOOD);
+    p.box(2, 32, 8, 1, WOOD_D);
+    p.box(1, 4, 4, 10, 0x8a3a3a);
+    p.box(7, 6, 4, 8, 0x3a5a8a);
+    p.box(3, 1, 6, 2, 0x5a5a6a);
+  });
+  F('crib', 30, 20, (p) => {
+    p.box(1, 2, 2, 17, 0xf0f0f8);
+    p.box(27, 2, 2, 17, 0xf0f0f8);
+    p.box(3, 4, 24, 1, 0xf0f0f8);
+    p.box(3, 13, 24, 2, 0xf0f0f8);
+    for (let x = 5; x < 26; x += 3) p.vline(x, 5, 8, 0xd0d0e0);
+    p.box(5, 10, 8, 3, 0x9ad0ff);
+    p.box(15, 9, 5, 4, 0xf2c94c);
+  });
+  F('piano', 30, 26, (p) => {
+    p.box(1, 2, 28, 18, 0x3a2a2a);
+    p.rect(3, 4, 24, 6, 0x5a3a3a);
+    p.box(1, 12, 28, 3, 0xf4f0e8);
+    for (let x = 3; x < 28; x += 3) p.set(x, 12, INK);
+    p.box(3, 20, 2, 5, 0x3a2a2a);
+    p.box(25, 20, 2, 5, 0x3a2a2a);
+    p.box(10, 0, 5, 2, 0xf2c94c);
+  });
+  F('speaker', 12, 22, (p) => {
+    p.box(1, 1, 10, 20, 0x2a2a3a);
+    p.disc(6, 6, 3, INK);
+    p.disc(6, 6, 2, 0x5a5a6a);
+    p.disc(6, 14, 4, INK);
+    p.disc(6, 14, 3, 0x5a5a6a);
+    p.set(6, 14, 0xc070ff);
+  });
+  F('boiler', 22, 34, (p) => {
+    p.box(2, 3, 18, 28, 0xa83a2a);
+    p.rect(4, 5, 3, 24, mix(0xa83a2a, 0xffffff, 0.3));
+    p.disc(14, 10, 4, INK);
+    p.disc(14, 10, 3, 0xf0f0f0);
+    p.line(14, 10, 16, 8, 0xe8504a);
+    p.box(6, 22, 10, 6, 0x2a1a1a);
+    p.rect(8, 24, 6, 3, 0xff9a40);
+    p.box(9, 0, 4, 3, 0x8a90a8);
+  });
+  F('barrels', 26, 18, (p) => {
+    for (const x of [1, 13]) {
+      p.box(x, 2, 11, 15, 0x9a6a3a);
+      p.hline(x, 5, 11, 0x5a5a6a);
+      p.hline(x, 13, 11, 0x5a5a6a);
+      p.vline(x + 3, 3, 13, shade(0x9a6a3a, 0.8));
+    }
+  });
+  F('pooltable', 40, 16, (p) => {
+    p.box(1, 3, 38, 5, 0x2a8a4a);
+    p.rect(1, 3, 38, 1, WOOD);
+    p.box(1, 8, 38, 2, WOOD_D);
+    p.box(3, 10, 3, 5, WOOD_D);
+    p.box(34, 10, 3, 5, WOOD_D);
+    p.set(12, 2, 0xffffff);
+    p.set(20, 2, 0xe8504a);
+    p.set(23, 2, 0xf2c94c);
+    p.line(26, 1, 38, 0, WOOD);
+  });
+  F('arcade', 16, 32, (p) => {
+    p.box(1, 2, 14, 29, 0x3a2a8a);
+    p.box(1, 0, 14, 4, 0xff60c0);
+    p.rect(3, 6, 10, 9, INK);
+    p.vgrad(4, 7, 8, 7, 0x40c0ff, 0x2a3aa0);
+    p.set(6, 9, 0xf2c94c);
+    p.box(2, 17, 12, 3, 0x5a4ab8);
+    p.set(5, 17, 0xe8504a);
+    p.set(9, 18, 0x5cc85a);
+    p.set(11, 18, 0x4a8be8);
+  });
+  F('cattree', 18, 34, (p) => {
+    p.box(7, 6, 4, 26, 0xd8c098);
+    for (let y = 8; y < 32; y += 3) p.hline(7, y, 4, 0xb89a70);
+    p.box(1, 4, 16, 3, 0x9a6ac8);
+    p.box(3, 18, 12, 3, 0x9a6ac8);
+    p.box(1, 31, 16, 2, 0x9a6ac8);
+    p.box(11, 0, 5, 4, 0xf2a040);
+    p.set(12, 0, INK);
+  });
+  F('cat', 12, 9, (p) => {
+    const c = 0xf2a040;
+    p.box(2, 4, 8, 4, c);
+    p.box(7, 1, 4, 4, c);
+    p.set(7, 0, c);
+    p.set(10, 0, c);
+    p.set(8, 2, INK);
+    p.line(2, 4, 0, 1, c);
+    p.outline();
+  });
+  F('trophycase', 22, 32, (p) => {
+    p.box(1, 1, 20, 30, WOOD_D);
+    p.rect(3, 3, 16, 26, 0x6a8ab0);
+    for (const y of [11, 20]) p.hline(3, y, 16, WOOD);
+    for (const [x, y] of [[6, 5], [13, 5], [9, 14], [6, 23], [14, 23]]) {
+      p.rect(x, y, 3, 3, 0xf2c94c);
+      p.set(x + 1, y + 3, 0xc89a20);
+      p.rect(x, y + 4, 3, 1, 0xc89a20);
+    }
+  });
+  F('trophy', 12, 18, (p) => {
+    p.box(2, 1, 8, 6, 0xf2c94c);
+    p.set(1, 2, 0xf2c94c);
+    p.set(10, 2, 0xf2c94c);
+    p.box(5, 7, 2, 4, 0xc89a20);
+    p.box(2, 12, 8, 5, 0x5a3a2a);
+    p.set(4, 2, 0xffffff);
+  });
+  F('yarn', 8, 7, (p) => {
+    p.disc(4, 3, 3, 0xe85080);
+    p.line(2, 1, 6, 5, mix(0xe85080, 0xffffff, 0.4));
+    p.line(1, 4, 5, 1, mix(0xe85080, 0xffffff, 0.4));
+    p.outline();
+  });
+  F('basket', 14, 12, (p) => {
+    p.box(1, 4, 12, 7, 0xc89a5a);
+    for (let x = 2; x < 13; x += 2) p.vline(x, 5, 5, 0x9a6a3a);
+    p.disc(5, 3, 2, 0x4a8be8);
+    p.disc(9, 3, 2, 0x5cc85a);
+    p.line(11, 0, 7, 4, 0xd8d8e0);
+  });
+  F('rockchair', 20, 22, (p) => {
+    p.box(4, 1, 4, 14, WOOD);
+    p.box(4, 11, 13, 3, WOOD);
+    p.box(5, 3, 2, 8, 0xc85a8a);
+    for (let x = 1; x < 20; x++) p.set(x, 20 - Math.round(((x - 10) / 9) ** 2 * 2), WOOD_D);
+    p.vline(6, 14, 5, WOOD_D);
+    p.vline(15, 14, 5, WOOD_D);
+  });
+  F('bigplant', 18, 32, (p) => {
+    p.box(4, 22, 10, 9, 0xc8603a);
+    for (const [x, y, r] of [[9, 6, 4], [4, 12, 4], [14, 11, 4], [8, 16, 4], [12, 3, 3]]) p.disc(x, y, r, 0x3a9a4a);
+    for (const [x, y] of [[8, 4], [3, 10], [13, 9], [7, 14]]) p.set(x, y, 0x8ad070);
+    p.vline(9, 16, 6, 0x2a6a2a);
+    p.outline();
+  });
+  F('slide-toy', 30, 22, (p) => {
+    p.box(2, 2, 3, 19, 0x4a8be8);
+    for (let y = 5; y < 20; y += 4) p.hline(1, y, 6, 0xf2c94c);
+    for (let x = 5; x < 29; x++) {
+      const y = 3 + Math.round(((x - 5) / 24) * 15);
+      p.set(x, y, INK);
+      p.set(x, y + 1, 0xe8504a);
+      p.set(x, y + 2, 0xe8504a);
+      p.set(x, y + 3, INK);
+    }
+  });
+  F('mic', 8, 26, (p) => {
+    p.box(3, 1, 3, 4, 0x8a90a8);
+    p.vline(4, 5, 19, INK);
+    p.box(1, 24, 7, 1, 0x5a5a6a);
+  });
+  F('mirrorstand', 12, 30, (p) => {
+    p.box(1, 1, 10, 22, 0xf2c94c);
+    p.vgrad(3, 3, 6, 18, 0xc8f0ff, 0x58b8f8);
+    p.line(4, 8, 7, 5, 0xffffff);
+    p.vline(5, 23, 5, WOOD_D);
+    p.box(2, 28, 8, 1, WOOD_D);
+  });
+  F('snackshelf', 24, 32, (p) => {
+    for (const x of [1, 21]) p.box(x, 1, 2, 30, 0x8a90a8);
+    for (const y of [10, 20, 30]) p.box(1, y, 22, 1, 0xb0b8c8);
+    for (let s = 0; s < 3; s++)
+      for (let k = 0; k < 3; k++) p.box(4 + k * 6, 3 + s * 10, 4, 6, COLS[(s + k * 2) % COLS.length]);
+  });
+  F('vault', 28, 34, (p) => {
+    p.box(1, 1, 26, 32, 0x8a90a8);
+    p.disc(14, 16, 10, INK);
+    p.disc(14, 16, 9, 0xb0b8c8);
+    p.disc(14, 16, 3, 0x5a5a6a);
+    for (let a = 0; a < 6; a++) p.line(14, 16, 14 + Math.round(Math.cos(a) * 7), 16 + Math.round(Math.sin(a) * 7), 0x5a5a6a);
+    p.rect(3, 3, 3, 3, 0xd8d8e0);
+    p.rect(22, 3, 3, 3, 0xd8d8e0);
+  });
+  F('sockpile', 34, 12, (p) => {
+    for (let k = 0; k < 6; k++) {
+      const x = 2 + k * 5;
+      const c = COLS[k % COLS.length];
+      p.box(x, 4 + (k % 2) * 2, 7, 4, c);
+      p.hline(x, 5 + (k % 2) * 2, 7, 0xffffff);
+    }
+  });
+  F('shoes', 14, 6, (p) => {
+    p.box(1, 2, 5, 3, 0x8a3a3a);
+    p.box(8, 2, 5, 3, 0x8a3a3a);
+    p.hline(1, 2, 2, 0xffffff);
+    p.hline(8, 2, 2, 0xffffff);
+  });
+  F('milk', 16, 32, (p) => {
+    p.box(1, 8, 14, 23, 0xf4f4fa);
+    p.box(3, 2, 10, 6, 0xf4f4fa);
+    p.rect(3, 1, 10, 1, 0x4a8be8);
+    p.rect(2, 14, 12, 8, 0x4a8be8);
+    p.rect(5, 16, 6, 3, 0xffffff);
+  });
+  F('cheese', 24, 14, (p) => {
+    for (let y = 2; y < 13; y++) {
+      const w = Math.round(((y - 2) / 10) * 22);
+      p.rect(1, y, w, 1, 0xf2c94c);
+    }
+    p.disc(8, 10, 1, 0xc89a20);
+    p.disc(14, 11, 2, 0xc89a20);
+    p.outline();
+  });
+  F('egg', 12, 16, (p) => {
+    for (let y = 1; y < 15; y++)
+      for (let x = 1; x < 11; x++) {
+        const dx = (x - 5.5) / 4.5;
+        const dy = (y - 8.5) / (y < 8 ? 7.5 : 6.5);
+        if (dx * dx + dy * dy <= 1) p.set(x, y, x < 4 && y < 7 ? 0xffffff : 0xf0e0c8);
+      }
+    p.outline();
+  });
+  F('boat', 44, 26, (p) => {
+    p.box(3, 16, 38, 7, 0xf0f0f8);
+    p.rect(3, 16, 38, 2, 0xe8504a);
+    p.set(8, 23, 0xf2c94c);
+    p.set(36, 23, 0xf2c94c);
+    p.vline(22, 1, 15, WOOD_D);
+    for (let y = 2; y < 14; y++) p.rect(23, y, Math.round((y - 1) * 1.2), 1, 0xffffff);
+    p.box(10, 12, 6, 4, 0xf2c94c);
+    p.set(15, 13, 0xe8804a);
+  });
+  F('grandpiano', 44, 26, (p) => {
+    p.box(2, 8, 40, 8, 0x1a1a24);
+    p.line(4, 7, 30, 0, INK);
+    p.line(4, 8, 30, 1, 0x3a3a4a);
+    p.box(2, 13, 14, 2, 0xf4f0e8);
+    for (let x = 3; x < 16; x += 2) p.set(x, 13, INK);
+    for (const x of [4, 22, 38]) p.box(x, 16, 2, 9, 0x1a1a24);
+  });
+  F('tent', 40, 30, (p) => {
+    const c = 0xe880b0;
+    for (let y = 2; y < 29; y++) {
+      const hw = Math.round(((y - 2) / 27) * 19);
+      p.rect(20 - hw, y, hw * 2, 1, (Math.floor((20 - hw) / 1) + y) % 9 === 0 ? 0xffffff : c);
+    }
+    for (let y = 12; y < 29; y++) {
+      const hw = Math.round(((y - 12) / 17) * 6);
+      p.rect(20 - hw, y, hw * 2, 1, 0x3a1a3a);
+    }
+    p.vline(20, 0, 3, WOOD_D);
+    p.set(21, 0, 0xf2c94c);
+    p.outline();
+  });
+  F('pillows', 28, 14, (p) => {
+    const cs = [0xf0c0e0, 0x9ad0ff, 0xfff0a0, 0xc0f0c0];
+    for (let k = 0; k < 4; k++) {
+      const x = 1 + (k % 3) * 9;
+      const y = k < 3 ? 6 : 1;
+      p.box(x, y, 9, 6, cs[k]);
+      p.set(x + 4, y + 3, shade(cs[k], 0.8));
+    }
+  });
+  F('pendulum', 20, 40, (p) => {
+    p.vline(10, 0, 30, 0xc89a20);
+    p.disc(10, 32, 6, INK);
+    p.disc(10, 32, 5, 0xf2c94c);
+    p.set(8, 30, 0xffffff);
+    p.box(2, 0, 16, 2, WOOD_D);
+  });
+  F('jelly', 18, 18, (p) => {
+    for (let y = 2; y < 17; y++) {
+      const hw = 5 + Math.round(((y - 2) / 14) * 3);
+      for (let x = 9 - hw; x < 9 + hw; x++) p.set(x, y, (y % 4 === 0) ? 0xff8a8a : 0xe84a5a);
+    }
+    p.rect(5, 4, 2, 6, 0xffc0c0);
+    p.rect(1, 17, 16, 1, 0xd8d8e0);
+    p.outline();
+  });
+  F('tinydoor', 10, 14, (p) => {
+    p.box(1, 1, 8, 12, 0xa8302a);
+    p.set(6, 7, TRIM);
+    p.rect(2, 2, 6, 1, 0xe8504a);
+  });
+  F('moonflag', 14, 26, (p) => {
+    p.vline(2, 1, 24, 0xd8d8e0);
+    p.box(3, 2, 10, 7, 0xffffff);
+    p.rect(4, 3, 4, 3, 0x4a8be8);
+    p.hline(4, 7, 8, 0xe8504a);
+  });
+  F('rocket', 18, 36, (p) => {
+    for (let y = 1; y < 28; y++) {
+      const hw = y < 8 ? Math.round(y * 0.6) + 1 : 5;
+      p.rect(9 - hw, y, hw * 2, 1, y < 6 ? 0xe8504a : 0xf0f0f8);
+    }
+    p.disc(9, 13, 2, 0x58b8f8);
+    p.box(1, 22, 3, 8, 0xe8504a);
+    p.box(14, 22, 3, 8, 0xe8504a);
+    p.rect(6, 28, 6, 3, 0xff9a40);
+    p.rect(7, 31, 4, 3, 0xf2c94c);
+    p.outline();
+  });
+
+  // Wall hangings.
+  W_('tank', 44, 26, (p) => {
+    p.box(1, 1, 42, 23, 0x2a7ab8);
+    p.vgrad(2, 3, 40, 20, 0x58c8f8, 0x1a4a8a);
+    p.rect(1, 1, 42, 2, 0x5a5a6a);
+    for (const [x, y, c] of [[10, 9, 0xff9a40], [26, 14, 0xf2c94c], [33, 7, 0xe8504a]] as const) {
+      p.rect(x, y, 4, 3, c);
+      p.set(x - 1, y + 1, c);
+      p.set(x + 4, y, c);
+      p.set(x + 4, y + 2, c);
+      p.set(x + 2, y + 1, INK);
+    }
+    for (let y = 14; y < 23; y++) {
+      p.set(6 + Math.round(Math.sin(y / 2)), y, 0x3a9a4a);
+      p.set(38 + Math.round(Math.cos(y / 2)), y, 0x3a9a4a);
+    }
+    p.rect(2, 21, 40, 2, 0xe0c890);
+    p.set(20, 5, 0xffffff);
+    p.set(21, 3, 0xffffff);
+  });
+  W_('trophyshelf', 30, 14, (p) => {
+    p.box(1, 11, 28, 2, WOOD);
+    for (const x of [4, 13, 22]) {
+      p.box(x, 3, 5, 4, 0xf2c94c);
+      p.box(x + 1, 7, 3, 3, 0xc89a20);
+    }
+  });
+  W_('fishframe', 16, 12, (p) => {
+    p.box(1, 1, 14, 10, 0xe8e0d0);
+    p.rect(3, 3, 10, 6, 0x58b8f8);
+    p.rect(5, 5, 5, 2, 0xff9a40);
+    p.set(10, 4, 0xff9a40);
+    p.set(10, 7, 0xff9a40);
+  });
+  W_('doily', 14, 14, (p) => {
+    p.disc(7, 7, 6, 0xf4f0e8);
+    for (let a = 0; a < 12; a++) p.set(7 + Math.round(Math.cos(a / 1.9) * 5), 7 + Math.round(Math.sin(a / 1.9) * 5), 0xc8b8a0);
+    p.disc(7, 7, 2, 0xe85080);
+    p.outline();
+  });
+  W_('hats', 30, 12, (p) => {
+    p.box(1, 1, 28, 1, WOOD);
+    p.box(3, 4, 7, 4, 0x2a2a3a);
+    p.box(1, 8, 11, 1, 0x2a2a3a);
+    p.box(15, 5, 6, 3, 0xe8504a);
+    p.box(14, 8, 9, 1, 0xe8504a);
+    p.box(25, 3, 3, 6, 0xf2c94c);
+    p.set(26, 2, 0x5cc85a);
+  });
+  W_('sock', 10, 16, (p) => {
+    const c = 0xe8504a;
+    p.box(2, 1, 4, 10, c);
+    p.box(2, 10, 7, 4, c);
+    p.hline(2, 3, 4, 0xffffff);
+    p.hline(2, 6, 4, 0xffffff);
+  });
 }

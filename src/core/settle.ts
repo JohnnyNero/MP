@@ -1,8 +1,8 @@
 // Settle a minigame: payouts, placement rewards, containment, lingering and spread.
 import { FFA_STEPS, SOLO_WIN_STEPS, TEAM_2V2_STEPS, TRIO_WIN_STEPS } from '../content/board';
 import { CARDS } from '../content/cards';
-import { HOUSE } from '../content/house';
-import { deriveHouse, neighbours } from './house';
+import { deriveHouse, holeSpots, neighbours, roomById } from './house';
+import { EDGE_MARGIN } from './houseGen';
 import { targetRooms } from './houseTurn';
 import { pick, rand } from './rng';
 import { log } from './setup';
@@ -72,16 +72,23 @@ function lingerEffect(state: GameState, card: HazardId, rooms: string[]): Active
   }
   if (def.makesHole) {
     const holed = new Set(state.effects.filter((x) => x.hole).map((x) => x.hole!.from));
-    const free = rooms.filter((r) => !holed.has(r));
-    const room = free.length ? pick(state.rng, 'house', free) : null;
-    const r = HOUSE.rooms.find((x) => x.id === room);
-    const below = r && HOUSE.rooms.find((x) => x.floor === r.floor - 1 && x.col === r.col);
-    if (room && below) e.hole = { from: room, to: below.id };
+    const free = rooms.filter((r) => !holed.has(r) && holeSpots(state.house, r).length > 0);
+    if (free.length) {
+      const room = pick(state.rng, 'house', free);
+      // Prefer a column whose boundary has no vertical connector yet.
+      const spots = holeSpots(state.house, room);
+      const busy = (sp: { colX: number; to: string }) =>
+        house.connections.some((c) => c.colX === sp.colX && c.a === sp.to && c.b === room);
+      const clear = spots.filter((sp) => !busy(sp));
+      const spot = pick(state.rng, 'house', clear.length ? clear : spots);
+      const frac = EDGE_MARGIN + rand(state.rng, 'house') * (1 - 2 * EDGE_MARGIN);
+      e.hole = { from: room, to: spot.to, colX: spot.colX, frac };
+    }
   }
   if (def.movesBoard && rooms.includes(house.boardRoom)) {
     const opts = neighbours(house.boardRoom, house.connections, house.blocked).filter((x) => {
-      const rr = HOUSE.rooms.find((q) => q.id === x)!;
-      const br = HOUSE.rooms.find((q) => q.id === house.boardRoom)!;
+      const rr = roomById(state.house, x)!;
+      const br = roomById(state.house, house.boardRoom)!;
       return rr.floor === br.floor;
     });
     if (opts.length) e.boardTo = pick(state.rng, 'house', opts);

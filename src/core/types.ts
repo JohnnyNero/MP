@@ -35,26 +35,91 @@ export type RoomTag =
   | 'cluttered'
   | 'monkeys';
 
-export type ConnectionKind = 'door' | 'stairs' | 'ladder' | 'chute' | 'hole';
+export type ConnectionKind =
+  | 'door' // two-way, same level, through a shared wall
+  | 'bookcase' // two-way door that spins you through (press action)
+  | 'stairs' // two-way vertical
+  | 'ladder' // two-way vertical
+  | 'lift' // two-way vertical dumbwaiter (press action to ride)
+  | 'portal' // two-way painting pair between any two rooms
+  | 'chute' // one-way down
+  | 'pole' // one-way down
+  | 'slide' // one-way down
+  | 'tramp' // one-way UP (trampoline bed)
+  | 'hole'; // one-way down, created by meteors
 
+/** 0 = Sensible, 1 = Silly, 2 = Nonsense. Chosen in the lobby. */
+export type Goofiness = 0 | 1 | 2;
+
+/**
+ * Houses are built on a cell grid: `cols` x `rows`, row 0 at the top.
+ * `level` counts from the bottom: level 0 is the lowest row (the basement).
+ */
 export interface RoomDef {
   id: string;
   name: string;
-  floor: number; // 0 = ground
-  col: number; // 0..2 left to right
+  /** Level of the room's floor (its bottom row); 0 = lowest. */
+  floor: number;
+  /** Left-most column. */
+  col: number;
+  /** Grid rect, in cells: gx/gy is the top-left cell, gw/gh the size. */
+  gx: number;
+  gy: number;
+  gw: number;
+  gh: number;
+  /** Theme key used by the art (wallpaper, props), e.g. 'kitchen', 'ballpit'. */
+  theme: string;
+  /** Wall colour (0xRRGGBB). */
+  color: number;
 }
 
 export interface ConnectionDef {
   id: string;
   kind: ConnectionKind;
-  a: string; // room id (for vertical connections: the lower room)
+  /**
+   * Vertical kinds: a = the LOWER room, b = the UPPER room (for every kind,
+   * including tramp, which goes a -> b, and chute/pole/slide/hole, which go b -> a).
+   * Doors/bookcases: a = left room, b = right room. Portals and lifts: any order.
+   */
+  a: string;
   b: string;
+  /** Doors/bookcases: index of the vertical grid line (wall) they sit in. */
+  wallX?: number;
+  /** Doors/bookcases: grid row the door is on (row index from the top). */
+  row?: number;
+  /** Vertical kinds: grid column, plus horizontal position inside it (0..1). */
+  colX?: number;
+  frac?: number;
+  /** Portals: horizontal position (0..1) inside room a and room b. */
+  fracA?: number;
+  fracB?: number;
+}
+
+export type PropKind = 'switch' | 'trapdoor';
+
+/** Interactables that live inside one room rather than linking two. */
+export interface PropDef {
+  id: string;
+  kind: PropKind;
+  room: string;
+  /** Horizontal position inside the room (0..1). */
+  frac: number;
 }
 
 export interface HouseDef {
+  cols: number;
+  rows: number;
   rooms: RoomDef[];
   connections: ConnectionDef[];
+  props: PropDef[];
   boardRoom: string;
+  /** Feature ids shown to players ("Portal paintings", ...). */
+  features: string[];
+  name: string;
+  seed: number;
+  goofiness: Goofiness;
+  /** Top-row cells with no room (roof gaps), as "gx,gy". */
+  gaps: string[];
 }
 
 export type HazardId =
@@ -68,7 +133,8 @@ export type HazardId =
   | 'monkeys';
 
 export type Targeting =
-  | { kind: 'floor'; floor: number }
+  | { kind: 'lowest' } // every room on the lowest level (the basement)
+  | { kind: 'highest' } // every room right under the roof
   | { kind: 'randomRoom' }
   | { kind: 'randomFloor' };
 
@@ -130,7 +196,12 @@ export interface ActiveEffect {
   rooms: string[];
   round: number;
   blockedConnection?: string;
-  hole?: { from: string; to: string };
+  /**
+   * Meteor hole from `from` (upper) down to `to` (the room directly below).
+   * colX = grid column it punches through, frac = position inside it (0..1);
+   * the boundary is `from`'s floor / `to`'s ceiling. Derived as a 'hole' connection.
+   */
+  hole?: { from: string; to: string; colX?: number; frac?: number };
   boardTo?: string;
 }
 
@@ -143,6 +214,8 @@ export type Phase = 'regroup' | 'turns' | 'house' | 'minigame' | 'over';
 
 export interface GameState {
   seed: number;
+  /** This game's procedurally generated house (fixed for the whole game). */
+  house: HouseDef;
   rng: Record<string, number>;
   round: number;
   roundCap: number;

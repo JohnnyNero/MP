@@ -30,7 +30,7 @@ function tone(freq: number, dur: number, type: OscillatorType = 'square', vol = 
   o.stop(a.currentTime + dur);
 }
 
-export type SfxName = 'hit' | 'coin' | 'pickup' | 'boom' | 'blip' | 'step' | 'roll' | 'select' | 'win' | 'bad' | 'whoosh';
+export type SfxName = 'hit' | 'coin' | 'pickup' | 'boom' | 'blip' | 'step' | 'roll' | 'select' | 'win' | 'bad' | 'whoosh' | 'boing' | 'warp';
 
 export function sfx(name: SfxName) {
   switch (name) {
@@ -58,6 +58,11 @@ export function sfx(name: SfxName) {
       tone(1100, 0.22, 'sawtooth', 0.025, -800);
       tone(420, 0.18, 'triangle', 0.06, -260);
       return setTimeout(() => tone(660, 0.07, 'square', 0.035, 240), 150);
+    case 'boing':
+      return tone(180, 0.25, 'triangle', 0.08, 520);
+    case 'warp':
+      tone(300, 0.3, 'sine', 0.06, 900);
+      return setTimeout(() => tone(1200, 0.15, 'sine', 0.04, -700), 120);
     case 'bad':
       [392, 330, 262].forEach((f, i) => setTimeout(() => tone(f, 0.25, 'sawtooth', 0.05), i * 180));
       return;

@@ -63,7 +63,7 @@ export function safeRoomGoal(ctx: MGContext, i: number): BotGoal {
 
 // ------------------------------------------------------------ survive
 class Survive implements GoalSystem {
-  private books: { x: number; floorY: number; t: number; shadow: Phaser.GameObjects.Image; img?: Phaser.GameObjects.Image }[] = [];
+  private books: { x: number; floorY: number; top: number; t: number; shadow: Phaser.GameObjects.Image; img?: Phaser.GameObjects.Image }[] = [];
   private next = 500;
   private hits: number[];
   private elapsed = 0;
@@ -81,12 +81,12 @@ class Survive implements GoalSystem {
       const room = c.house.roomAt(target.x, target.y) ?? c.house.rooms[0];
       const x = Math.max(room.x0 + 6, Math.min(room.x1 - 6, target.x + (c.rnd() - 0.5) * 50));
       const shadow = c.scene.add.image(x, room.bottom - 1, 'shadow').setAlpha(0.4).setDepth(8);
-      this.books.push({ x, floorY: room.bottom, t: 0, shadow });
+      this.books.push({ x, floorY: room.bottom, top: room.top, t: 0, shadow });
     }
     for (const b of this.books) {
       b.t += dt;
-      if (b.t > 600 && !b.img) b.img = c.scene.add.image(b.x, b.floorY - 74, 'book').setDepth(22);
-      if (b.img) b.img.y = b.floorY - 74 + 70 * Math.min(1, (b.t - 600) / 220);
+      if (b.t > 600 && !b.img) b.img = c.scene.add.image(b.x, b.top, 'book').setDepth(22);
+      if (b.img) b.img.y = b.top + (b.floorY - 4 - b.top) * Math.min(1, (b.t - 600) / 220);
       if (b.t >= 820 && b.t - dt < 820) {
         c.avatars.forEach((av, i) => {
           if (overlaps(av, b.x, b.floorY - 8, 8, 10) && av.hit(c.now, Math.sign(av.x - b.x) * 70, 800)) {

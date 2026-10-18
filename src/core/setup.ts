@@ -2,8 +2,9 @@
 import { BOARD, FIRST_ARRIVAL_BONUS, ROUND_CAP, STARTING_COINS } from '../content/board';
 import { DECK_COUNTS } from '../content/cards';
 import { distToFinish } from './board';
+import { generateHouse } from './houseGen';
 import { initRng, shuffle } from './rng';
-import type { GameState, HazardId, PlayerState } from './types';
+import type { GameState, Goofiness, HazardId, PlayerState } from './types';
 
 export interface PlayerConfig {
   name: string;
@@ -11,7 +12,7 @@ export interface PlayerConfig {
   difficulty?: number;
 }
 
-export function newGame(seed: number, configs: PlayerConfig[]): GameState {
+export function newGame(seed: number, configs: PlayerConfig[], goofiness: Goofiness = 1): GameState {
   if (configs.length < 2 || configs.length > 4) throw new Error('2-4 players');
   const rng = initRng(seed);
   const players: PlayerState[] = configs.map((c, i) => ({
@@ -28,6 +29,7 @@ export function newGame(seed: number, configs: PlayerConfig[]): GameState {
   }));
   const state: GameState = {
     seed,
+    house: generateHouse(seed, goofiness),
     rng,
     round: 0,
     roundCap: ROUND_CAP,

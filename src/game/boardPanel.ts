@@ -399,7 +399,7 @@ export class BoardPanel {
     for (const sp of Object.values(BOARD.spaces)) {
       if (sp.type === 'gate' && this.state.openGates.includes(sp.id)) drawTile(p, sp.x, sp.y, GATE_OPEN, half(sp.type));
     }
-    const eff = this.state.effects.map((e) => `${CARDS[e.card].name} (${e.rooms.map(roomName).join(', ')})`);
+    const eff = this.state.effects.map((e) => `${CARDS[e.card].name} (${e.rooms.map((id) => roomName(this.state.house, id)).join(', ')})`);
     this.lingering.setText(eff.length ? `Lingering in the house: ${eff.join(' · ')}` : 'The house is calm... for now.');
   }
 

@@ -2,20 +2,28 @@ import Phaser from 'phaser';
 import { PLAYER_COLORS, ZOOM } from '../config';
 import { inputHub } from '../input';
 import { sfx } from '../sfx';
-import { bayer, bevelBox, C16, canvasImage, ctxPlot, ditherFill, gfxPlot, hex, INK_CSS, mix, panel, text } from '../ui';
+import type { Goofiness } from '../../core/types';
+import { bayer, bevelBox, C16, canvasImage, ctxPlot, ditherFill, gfxPlot, INK_CSS, mix, onCanvasTap, panel, text } from '../ui';
 import type { GameSceneData, SeatConfig } from './GameScene';
 
 const DIFFICULTY = ['Easy', 'Normal', 'Hard', 'Expert'];
 const BOT_NAMES = ['Rex', 'Pip', 'Juno', 'Mo'];
+const GOOFINESS = ['Sensible', 'Silly', 'Nonsense'];
+/** Lobby option rows (P1 moves between them with up/down, changes them with left/right). */
+const OPTS = ['players', 'bots', 'house'] as const;
+const OPT_X = [110, 240, 370];
 
 /** Join screen: each controller presses jump to take a seat; bots fill the rest. */
 export class TitleScene extends Phaser.Scene {
   private joined: string[] = [];
   private total = 4;
   private difficulty = 1;
+  private goofiness: Goofiness = 1;
+  /** Selected lobby option row (index into OPTS). */
+  private opt = 0;
   private slotTexts: Phaser.GameObjects.Text[] = [];
   private cards: { card: Phaser.GameObjects.Container; g: Phaser.GameObjects.Graphics; num: Phaser.GameObjects.Text; state: string }[] = [];
-  private optText!: Phaser.GameObjects.Text;
+  private optTexts: Phaser.GameObjects.Text[] = [];
   private starting = false;
 
   constructor() {
@@ -29,6 +37,9 @@ export class TitleScene extends Phaser.Scene {
     this.slotTexts = [];
     this.cards = [];
     this.starting = false;
+    this.optTexts = [];
+    const q = new URLSearchParams(location.search).get('goof');
+    if (q === '0' || q === '1' || q === '2') this.goofiness = Number(q) as Goofiness;
     canvasImage(this, 0, 0, 480, 270, drawTitleBackdrop, 'title-bg', true);
     // A few twinkling stars on top of the static sky.
     for (const [x, y, d] of [[60, 22, 0], [118, 58, 400], [356, 16, 800], [452, 78, 200], [30, 96, 600], [300, 50, 1000]]) {
@@ -81,22 +92,30 @@ export class TitleScene extends Phaser.Scene {
     }
 
     panel(this, 30, 174, 420, 92);
-    this.optText = text(this, 240, 180, '', 8, hex(C16.gold)).setOrigin(0.5, 0);
+    for (const x of OPT_X) this.optTexts.push(text(this, x, 180, '', 8, '#ffffff').setOrigin(0.5, 0));
+    // Tap an option to change it (touch and mouse).
+    onCanvasTap(this, (wx, wy) => {
+      if (wy < 176 || wy > 192) return;
+      const i = OPT_X.findIndex((x) => Math.abs(wx - x) < 62);
+      if (i < 0) return;
+      this.opt = i;
+      this.change(1, true);
+    });
     this.add.graphics().setDepth(90).fillStyle(0x3a2a78, 1).fillRect(40, 192, 400, 1).fillStyle(0x5a4a9a, 1).fillRect(40, 193, 400, 1);
     const touch = inputHub.sources.has('touch');
     const help = touch
       ? [
           'Tap JUMP to join. Tap JUMP again to start. Empty seats are bots.',
-          'Stick left/right = players, up/down = bot skill.',
+          'Tap an option above to change it (or stick up/down + left/right).',
           'Drag on the left half to move. Tap menu rows to pick.',
-          'Stick up/down on ladders/stairs. Walk into the attic chute.',
+          'Stick up/down on ladders/stairs. ACT uses lifts, levers, switches.',
           'First game shows tips; BACK skips them.',
         ]
       : [
           'JOIN: press jump.  Gamepad: A jump, X action, B back.',
           'Keys P1: WASD, F jump, G action, Q back.  P2: arrows, K/L/J.',
-          'Up/down climbs ladders/stairs. Walk into the attic chute.',
-          'P1: left/right = players, up/down = bot skill, jump = START.',
+          'Up/down climbs; action uses lifts, bookcases, switches, levers.',
+          'P1: up/down = pick option, left/right = change it, jump = START.',
           'Enter = start now (no humans: watch bots).  Esc = quit to title.',
         ];
     text(this, 42, 197, help.join('\n'), 8, '#c8bce8', { lineSpacing: 2 });
@@ -118,7 +137,11 @@ export class TitleScene extends Phaser.Scene {
       this.slotTexts[i].setText(label.slice(4));
       this.styleCard(i, i < this.joined.length ? 'human' : i < Math.max(this.total, this.joined.length) ? 'bot' : 'empty');
     }
-    this.optText.setText(`Players: < ${Math.max(this.total, this.joined.length, 2)} >     Bot skill: ${DIFFICULTY[this.difficulty]}`);
+    const vals = [`Players: ${Math.max(this.total, this.joined.length, 2)}`, `Bots: ${DIFFICULTY[this.difficulty]}`, `House: ${GOOFINESS[this.goofiness]}`];
+    this.optTexts.forEach((t, i) => {
+      const sel = i === this.opt && this.joined.length > 0;
+      t.setText(sel ? `< ${vals[i]} >` : vals[i]).setColor(sel ? '#ffffff' : i === 2 ? '#ffd040' : '#e0c870');
+    });
   }
 
   /** Draw seat i as a game cartridge: grey shell, label in the player's colour. */
@@ -169,11 +192,11 @@ export class TitleScene extends Phaser.Scene {
         continue;
       }
       if (seat === 0) {
-        if (pad.left) this.total = Math.max(2, Math.max(this.joined.length, this.total - 1));
-        if (pad.right) this.total = Math.min(4, this.total + 1);
-        if (pad.up) this.difficulty = Math.min(3, this.difficulty + 1);
-        if (pad.down) this.difficulty = Math.max(0, this.difficulty - 1);
-        if (pad.left || pad.right || pad.up || pad.down) {
+        if (pad.up) this.opt = (this.opt + OPTS.length - 1) % OPTS.length;
+        if (pad.down) this.opt = (this.opt + 1) % OPTS.length;
+        if (pad.left) this.change(-1);
+        if (pad.right) this.change(1);
+        if (pad.up || pad.down) {
           sfx('blip');
           this.refresh();
         }
@@ -184,6 +207,27 @@ export class TitleScene extends Phaser.Scene {
         this.refresh();
       }
     }
+  }
+
+  /** Change the selected option by d (wrapping when tapped). */
+  private change(d: number, wrap = false) {
+    const o = OPTS[this.opt];
+    if (o === 'players') {
+      const min = Math.max(2, this.joined.length);
+      let v = Math.max(this.total, min) + d;
+      if (wrap && v > 4) v = min;
+      this.total = Math.max(min, Math.min(4, v));
+    } else if (o === 'bots') {
+      let v = this.difficulty + d;
+      if (wrap) v = (v + 4) % 4;
+      this.difficulty = Math.max(0, Math.min(3, v));
+    } else {
+      let v = this.goofiness + d;
+      if (wrap) v = (v + 3) % 3;
+      this.goofiness = Math.max(0, Math.min(2, v)) as Goofiness;
+    }
+    sfx('blip');
+    this.refresh();
   }
 
   private start() {
@@ -197,7 +241,7 @@ export class TitleScene extends Phaser.Scene {
     );
     const params = new URLSearchParams(location.search);
     const seed = Number(params.get('seed')) || (Date.now() & 0x7fffffff);
-    const data: GameSceneData = { seats, seed };
+    const data: GameSceneData = { seats, seed, goofiness: this.goofiness };
     sfx('win');
     this.scene.start('game', data);
   }

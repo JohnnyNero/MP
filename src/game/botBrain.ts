@@ -36,10 +36,12 @@ export class BotBrain {
     let x = 0;
     let y = 0;
     let jump = false;
-    const action = false;
+    let action = false;
     this.toggle = !this.toggle;
 
     let target: { x: number; y: number } | null = null;
+    /** x of the feature we're heading for (so we don't hop over it). */
+    let using: number | null = null;
     if (goal.kind === 'goto') target = goal;
     else if (goal.kind === 'flee') target = this.pickFlee(av, goal, house, now);
 
@@ -47,32 +49,47 @@ export class BotBrain {
       const e = this.route?.[0];
       y = e?.kind === 'climbDown' ? 1 : e?.kind === 'climbUp' ? -1 : av.climbT > 0.5 ? -1 : 1;
       if (av.climbing.kind === 'stairs') x = 0;
+    } else if (av.ride) {
+      // Riding a feature: nothing to steer.
     } else if (target) {
       const cur = av.room;
       const tRoom = house.roomAt(target.x, target.y)?.id;
       if (cur && tRoom && cur !== tRoom) {
         const key = `${cur}>${tRoom}`;
         if (key !== this.routeKey || now > this.replanAt) {
-          this.route = house.route(cur, tRoom);
+          this.route = house.route(cur, tRoom, av.x);
           this.routeKey = key;
           this.replanAt = now + 600 - this.difficulty * 100;
         }
         const e = this.route?.[0];
         if (e) {
+          using = e.x;
           const dx = e.x - av.x;
+          const near = Math.abs(dx) <= 2.5;
           if (e.kind === 'door') {
             x = Math.sign(e.x - (house.roomRect(e.from).x0 + house.roomRect(e.from).x1) / 2);
-          } else if (Math.abs(dx) > 2.5) {
+          } else if (e.kind === 'chute' || e.kind === 'slide') {
+            // Nudge onto the hatch / lip; stepping on it drops us in.
+            x = Math.sign(dx) || (this.toggle ? 1 : -1);
+          } else if (!near) {
             x = Math.sign(dx);
           } else if (e.kind === 'climbUp') {
             y = -1;
-          } else if (e.kind === 'climbDown') {
+          } else if (e.kind === 'climbDown' || e.kind === 'pole') {
             y = 1;
-          } else if (e.kind === 'chute') {
-            // Nudge onto the hatch; stepping on it drops us in.
-            x = Math.sign(dx) || (this.toggle ? 1 : -1);
           } else if (e.kind === 'drop') {
             x = this.toggle ? 1 : -1;
+          } else if (e.kind === 'tramp') {
+            // Hop and land on the bed.
+            jump = av.onGround;
+          } else if (e.kind === 'portal') {
+            // Up is edge-triggered: flick the stick.
+            y = this.toggle ? -1 : 0;
+          } else if (e.kind === 'lift') {
+            y = e.dir ?? 0;
+            action = this.toggle;
+          } else if (e.kind === 'bookcase') {
+            action = this.toggle;
           }
         } else {
           x = Math.sign(target.x - av.x);
@@ -81,6 +98,18 @@ export class BotBrain {
         const dx = target.x - av.x;
         if (Math.abs(dx) > 3) x = Math.sign(dx);
         if (target.y < av.y - 14 && Math.abs(dx) < 28) jump = true;
+      }
+    }
+
+    // Hop over hatches, slide lips and holes we don't mean to use.
+    if (x !== 0 && av.onGround && !av.climbing && !av.ride) {
+      for (const p of house.pitfalls) {
+        if (p.room !== av.room || (using !== null && Math.abs(using - p.x) < 2)) continue;
+        const ahead = (p.x - av.x) * Math.sign(x);
+        if (ahead > p.half - 1 && ahead < p.half + 12) {
+          jump = true;
+          x = Math.sign(x);
+        }
       }
     }
 
