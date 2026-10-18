@@ -15,6 +15,7 @@ export class TitleScene extends Phaser.Scene {
   private difficulty = 1;
   private slotTexts: Phaser.GameObjects.Text[] = [];
   private optText!: Phaser.GameObjects.Text;
+  private starting = false;
 
   constructor() {
     super('title');
@@ -25,6 +26,7 @@ export class TitleScene extends Phaser.Scene {
     inputHub.attach(this);
     this.joined = [];
     this.slotTexts = [];
+    this.starting = false;
     this.add.rectangle(240, 135, 480, 270, 0x14101c);
     // A little house silhouette behind the title.
     const g = this.add.graphics();
@@ -60,7 +62,9 @@ export class TitleScene extends Phaser.Scene {
 
     const params = new URLSearchParams(location.search);
     if (params.get('demo') === '1') this.time.delayedCall(200, () => this.start());
-    this.input.keyboard!.on('keydown-ENTER', () => this.start());
+    this.input.keyboard!.on('keydown-ENTER', (e: KeyboardEvent) => {
+      if (!e.repeat) this.start();
+    });
   }
 
   private refresh() {
@@ -107,6 +111,8 @@ export class TitleScene extends Phaser.Scene {
   }
 
   private start() {
+    if (this.starting) return;
+    this.starting = true;
     const n = Math.max(2, this.total, this.joined.length);
     const seats: SeatConfig[] = Array.from({ length: n }, (_, i) =>
       i < this.joined.length

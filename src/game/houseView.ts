@@ -180,8 +180,8 @@ export class HouseView {
       const gaps = this.holes.filter((h) => h.floor === f).sort((a, b) => a.x0 - b.x0);
       let x = 4;
       for (const g of gaps) {
-        this.solid(x, y, g.x0 - x, SLAB, 0x6a5040);
-        x = g.x1;
+        if (g.x0 > x) this.solid(x, y, g.x0 - x, SLAB, 0x6a5040);
+        x = Math.max(x, g.x1);
       }
       this.solid(x, y, 476 - x, SLAB, 0x6a5040);
       this.add(s.add.rectangle(240, y + 1, 472, 1, 0x9a7a5a).setDepth(1));

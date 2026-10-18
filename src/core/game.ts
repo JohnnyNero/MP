@@ -90,7 +90,7 @@ function log(state: GameState, msg: string) {
  * Start a new round. `arrivalOrder` lists player ids in the order they
  * reached the board; anyone missing was a straggler and goes last.
  */
-export function startRound(state: GameState, arrivalOrder: number[]): void {
+export function startRound(state: GameState, arrivalOrder: number[], arrivedCount = arrivalOrder.length): void {
   state.round += 1;
   const seen = new Set<number>();
   const order: number[] = [];
@@ -102,7 +102,7 @@ export function startRound(state: GameState, arrivalOrder: number[]): void {
   }
   for (const p of state.players) if (!seen.has(p.id)) order.push(p.id);
   state.turnOrder = order;
-  if (arrivalOrder.length > 0 && state.round > 1) {
+  if (arrivedCount > 0 && arrivalOrder.length > 0 && state.round > 1) {
     state.players[arrivalOrder[0]].coins += FIRST_ARRIVAL_BONUS;
   }
   for (const p of state.players) p.color = 'neutral';
@@ -183,7 +183,7 @@ export function shopOptions(p: PlayerState): ShopOption[] {
   return SHOP.filter((e) => {
     if (e.price > p.coins) return false;
     if (e.kind === 'item') return p.items.length < MAX_ITEMS;
-    return p.perks.length < MAX_PERKS;
+    return p.perks.length < MAX_PERKS && !p.perks.includes(e.id as PerkId);
   }).map((e) => ({ id: e.id, price: e.price }));
 }
 
@@ -208,8 +208,13 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
   // --- pre-roll: use items until the player chooses to roll.
   let dice = 1;
   for (;;) {
+    const pushable = state.players.filter((o) => o.id !== pid && o.trail.length > 0).map((o) => o.id);
     const usable = PRE_ROLL_ITEMS.filter(
-      (it) => p.items.includes(it) && !(it === 'doubleDie' && dice > 1) && !(it === 'respin' && state.respinArmed),
+      (it) =>
+        p.items.includes(it) &&
+        !(it === 'doubleDie' && dice > 1) &&
+        !(it === 'respin' && state.respinArmed) &&
+        !(it === 'pushBack' && pushable.length === 0),
     );
     if (usable.length === 0) break;
     const ans = (yield { kind: 'decide', dec: { d: 'preRoll', options: ['roll', ...usable] } }) as string;
@@ -222,7 +227,7 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
       state.respinArmed = true;
       yield { kind: 'event', ev: { t: 'respinArmed' } };
     } else if (item === 'pushBack') {
-      const rivals = state.players.filter((o) => o.id !== pid).map((o) => o.id);
+      const rivals = pushable;
       const target = (yield { kind: 'decide', dec: { d: 'target', options: rivals, purpose: 'pushBack' } }) as number;
       const t = state.players[rivals.includes(target) ? target : rivals[0]];
       const to = moveBack(t, 3);
@@ -260,8 +265,14 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
     if (nexts.length === 0) break;
     let to = nexts[0];
     if (nexts.length > 1) {
-      const opts = junctionOptions(state, p, from);
-      const idx = (yield { kind: 'decide', dec: { d: 'junction', options: opts } }) as number;
+      let opts = junctionOptions(state, p, from);
+      if (opts.length === 0) {
+        // Every branch costs coins we don't have: take the first free-looking one.
+        const free = nexts.find((n) => BOARD.spaces[n].type !== 'toll' && BOARD.spaces[n].type !== 'gate') ?? nexts[0];
+        opts = [{ to: free, cost: 0, label: 'Only way' }];
+      }
+      const idx =
+        opts.length === 1 ? 0 : ((yield { kind: 'decide', dec: { d: 'junction', options: opts } }) as number);
       const choice = opts[Math.max(0, Math.min(opts.length - 1, idx | 0))];
       to = choice.to;
       const sp = BOARD.spaces[to];
@@ -448,10 +459,12 @@ function lingerEffect(state: GameState, card: HazardId, rooms: string[]): Active
     if (options.length) e.blockedConnection = pick(state.rng, 'house', options).id;
   }
   if (def.makesHole) {
-    const room = pick(state.rng, 'house', rooms);
-    const r = HOUSE.rooms.find((x) => x.id === room)!;
-    const below = HOUSE.rooms.find((x) => x.floor === r.floor - 1 && x.col === r.col);
-    if (below) e.hole = { from: room, to: below.id };
+    const holed = new Set(state.effects.filter((x) => x.hole).map((x) => x.hole!.from));
+    const free = rooms.filter((r) => !holed.has(r));
+    const room = free.length ? pick(state.rng, 'house', free) : null;
+    const r = HOUSE.rooms.find((x) => x.id === room);
+    const below = r && HOUSE.rooms.find((x) => x.floor === r.floor - 1 && x.col === r.col);
+    if (room && below) e.hole = { from: room, to: below.id };
   }
   if (def.movesBoard && rooms.includes(house.boardRoom)) {
     const opts = neighbours(house.boardRoom, house.connections, house.blocked).filter((x) => {
@@ -482,15 +495,18 @@ export function settle(state: GameState, plan: MinigamePlan, result: MinigameRes
   // Lingering effects that spread (fire) creep into a neighbouring room.
   const spread: ActiveEffect[] = [];
   const house = deriveHouse(state);
+  const burning = new Set(Object.keys(house.tags).filter((r) => house.tags[r].includes('burning')));
   for (const e of [...state.effects]) {
     const chance = CARDS[e.card].spreadChance;
     if (!chance || e === newEffect) continue;
     if (rand(state.rng, 'house') >= chance) continue;
     const cands = e.rooms
       .flatMap((r) => neighbours(r, house.connections, house.blocked))
-      .filter((r) => !house.tags[r].includes('burning'));
+      .filter((r) => !burning.has(r));
     if (cands.length === 0) continue;
-    const ne: ActiveEffect = { uid: state.nextUid++, card: e.card, rooms: [pick(state.rng, 'house', cands)], round: state.round };
+    const target = pick(state.rng, 'house', cands);
+    burning.add(target);
+    const ne: ActiveEffect = { uid: state.nextUid++, card: e.card, rooms: [target], round: state.round };
     state.effects.push(ne);
     spread.push(ne);
   }

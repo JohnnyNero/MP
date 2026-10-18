@@ -101,6 +101,8 @@ export class GameScene extends Phaser.Scene {
     this.collider = undefined;
     this.house = undefined as unknown as HouseView;
     this.mgStart = -1e9;
+    this.springSeats = new Set();
+    this.headStartSeats = new Set();
   }
 
   create() {
@@ -132,6 +134,7 @@ export class GameScene extends Phaser.Scene {
     this.panel = new BoardPanel(this, this.state);
     this.buildHud();
     this.input.keyboard!.on('keydown-ESC', () => this.quit());
+    this.events.once('shutdown', () => this.dark.destroy());
     void this.runGame().catch((e) => {
       if (!this.quitting) console.error(e);
     });
@@ -206,7 +209,11 @@ export class GameScene extends Phaser.Scene {
     c.flippedRooms.clear();
     c.darkRooms.clear();
     c.hotRooms.clear();
-    for (const s of this.systems) s.update(dt);
+    for (const s of this.systems) {
+      // Lingering hazards only bite while players can actually move.
+      if (s === this.lingering && !this.avatarsActive) continue;
+      s.update(dt);
+    }
 
     if (this.avatarsActive) {
       this.avatars.forEach((av, i) => {
@@ -336,7 +343,7 @@ export class GameScene extends Phaser.Scene {
     if (stragglers.length) this.popText('Stragglers pulled to the board!', 240, 40, '#ff9090');
     applyCoinDelta(this.state, this.ctx.coinDelta);
     this.ctx.coinDelta.fill(0);
-    startRound(this.state, [...arrived, ...stragglers]);
+    startRound(this.state, [...arrived, ...stragglers], arrived.length);
     this.lineUpAtBoard();
     await this.wait(500);
   }
@@ -490,8 +497,14 @@ export class GameScene extends Phaser.Scene {
     }
     const menu = new Menu(this, 150, 144, 320, `${this.state.players[pid].name}: ${title}`, labels, PLAYER_CSS[pid]);
     let result: Answer | undefined;
+    const openedAt = this.time.now;
     await this.nextFrame();
     await this.waitUntil(() => {
+      // Nobody answering (e.g. a gamepad unplugged): let the bot logic decide.
+      if (this.time.now - openedAt > 30000) {
+        result = botDecide(this.state, pid, dec);
+        return true;
+      }
       const pad = this.padFor(pid);
       if (pad.up) {
         menu.move(-1);
@@ -696,7 +709,9 @@ export class GameScene extends Phaser.Scene {
     await this.wait(800);
     const allBots = this.seats.every((s) => s.isBot);
     const shownAt = this.time.now;
-    await this.waitUntil(() => this.anyHumanConfirm() || enter.isDown || (allBots && this.time.now - shownAt > 8000));
+    await this.waitUntil(
+      () => this.anyHumanConfirm() || Phaser.Input.Keyboard.JustDown(enter) || (allBots && this.time.now - shownAt > 8000),
+    );
     this.scene.start('title');
   }
 }

@@ -20,6 +20,12 @@ describe('board', () => {
       if (id !== BOARD.finish) expect(distToFinish(id)).toBeGreaterThan(0);
     }
   });
+  it('every fork has a free branch', () => {
+    for (const sp of Object.values(BOARD.spaces)) {
+      if (sp.next.length < 2) continue;
+      expect(sp.next.some((n) => !['toll', 'gate'].includes(BOARD.spaces[n].type))).toBe(true);
+    }
+  });
   it('has two forks', () => {
     expect(Object.values(BOARD.spaces).filter((s) => s.next.length > 1)).toHaveLength(2);
   });
