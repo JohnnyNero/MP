@@ -28,6 +28,10 @@ First player to reach the end escapes. If nobody does by round 15, the house win
 | Keyboard P1 | WASD | F | G | Q |
 | Keyboard P2 | Arrows | K | L | J |
 
+| Phone / tablet (1 player) | Drag on the left half | JUMP | ACT | BACK |
+
+- **On mobile:** turn the phone sideways. Tap JUMP to join, then JUMP again
+  to start; the other seats are bots. ⛶ is fullscreen, ✕ quits to the title.
 - Climb ladders and stairs with up/down.
 - Press down on a vent to crawl through it.
 - On the title screen, press jump to join. Empty seats are filled by bots.

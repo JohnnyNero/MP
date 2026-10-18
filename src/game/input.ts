@@ -42,7 +42,7 @@ export class VirtualPad {
   }
 }
 
-export type SourceId = 'kb1' | 'kb2' | `pad${number}`;
+export type SourceId = 'kb1' | 'kb2' | 'touch' | `pad${number}`;
 
 export const SOURCE_LABEL: Record<string, string> = {
   kb1: 'Keys WASD  F=jump G=action',

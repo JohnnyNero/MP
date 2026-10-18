@@ -43,21 +43,23 @@ export class TitleScene extends Phaser.Scene {
       this.slotTexts.push(text(this, 44 + (i % 2) * 210, 146 + Math.floor(i / 2) * 14, '', 8, PLAYER_CSS[i]));
     }
     this.optText = text(this, 44, 178, '', 7, '#ffffff');
-    text(
-      this,
-      44,
-      198,
-      [
-        'JOIN: press jump on your controller.  Gamepad: A = jump, X = action, B = back.',
-        `Keyboard P1: ${SOURCE_LABEL.kb1}   Keyboard P2: ${SOURCE_LABEL.kb2}`,
-        'Climb ladders/stairs with up/down. Press down on a vent to crawl through.',
-        'Player 1: left/right = players, up/down = bot skill, jump again = START.',
-        'Enter = start now (no humans = watch the bots).   Esc in game = quit to title.',
-      ].join('\n'),
-      6,
-      '#a898c8',
-      { lineSpacing: 3 },
-    );
+    const touch = inputHub.sources.has('touch');
+    const help = touch
+      ? [
+          'Tap JUMP to join. Tap JUMP again to start. Empty seats are bots.',
+          'Joystick left/right = number of players, up/down = bot skill.',
+          'In game: drag on the left half to move, JUMP to jump, ACT to act.',
+          'Push the joystick up/down on ladders and stairs, down on vents.',
+          'Menus: joystick up/down to pick, JUMP to choose, BACK to skip.',
+        ]
+      : [
+          'JOIN: press jump on your controller.  Gamepad: A = jump, X = action, B = back.',
+          `Keyboard P1: ${SOURCE_LABEL.kb1}   Keyboard P2: ${SOURCE_LABEL.kb2}`,
+          'Climb ladders/stairs with up/down. Press down on a vent to crawl through.',
+          'Player 1: left/right = players, up/down = bot skill, jump again = START.',
+          'Enter = start now (no humans = watch the bots).   Esc in game = quit to title.',
+        ];
+    text(this, 44, 198, help.join('\n'), touch ? 7 : 6, '#a898c8', { lineSpacing: 3 });
     this.refresh();
 
     const params = new URLSearchParams(location.search);
@@ -70,7 +72,7 @@ export class TitleScene extends Phaser.Scene {
   private refresh() {
     for (let i = 0; i < 4; i++) {
       let label: string;
-      if (i < this.joined.length) label = `P${i + 1}  ${this.joined[i].startsWith('kb') ? 'Keyboard' : 'Gamepad'}`;
+      if (i < this.joined.length) label = `P${i + 1}  ${this.joined[i] === 'touch' ? 'Touch' : this.joined[i].startsWith('kb') ? 'Keyboard' : 'Gamepad'}`;
       else if (i < Math.max(this.total, this.joined.length)) label = `P${i + 1}  Bot (${DIFFICULTY[this.difficulty]})`;
       else label = `P${i + 1}  -- empty --`;
       this.slotTexts[i].setText(label);

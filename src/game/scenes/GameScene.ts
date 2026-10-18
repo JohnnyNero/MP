@@ -139,6 +139,9 @@ export class GameScene extends Phaser.Scene {
     this.panel = new BoardPanel(this, this.state);
     this.buildHud();
     this.input.keyboard!.on('keydown-ESC', () => this.quit());
+    const onQuit = () => this.quit();
+    window.addEventListener('tabletop-quit', onQuit);
+    this.events.once('shutdown', () => window.removeEventListener('tabletop-quit', onQuit));
     this.events.once('shutdown', () => this.dark.destroy());
     void this.runGame().catch((e) => {
       if (!this.quitting) console.error(e);

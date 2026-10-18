@@ -2,11 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Tabletop</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 8 8 2l7 6v7H1z' fill='%23ffd040'/%3E%3C/svg%3E" />
     <style>
-      html, body { margin: 0; height: 100%; background: #14101c; overflow: hidden; }
+      html, body { margin: 0; height: 100%; background: #14101c; overflow: hidden; touch-action: none; overscroll-behavior: none; }
       #game { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
       canvas { image-rendering: pixelated; }
     </style>
