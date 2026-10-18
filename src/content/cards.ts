@@ -47,7 +47,7 @@ export const CARDS: Record<HazardId, CardDef> = {
   gravity: {
     id: 'gravity',
     name: 'Gravity Flip',
-    blurb: 'Up is down in one room.',
+    blurb: 'Up is down in one room (except right by its doors, ladders and vents).',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['lowgrav'],
     containBar: 0.65,

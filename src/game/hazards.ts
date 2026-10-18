@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import type { HazardId } from '../core/types';
+import type { ActiveEffect, HazardId } from '../core/types';
 import { FLOOR_Y, H, ROOF_Y, W } from './config';
 import { overlaps, type MGContext, type System } from './mgContext';
 
@@ -347,26 +347,24 @@ export function createHazard(ctx: MGContext, id: HazardId, rooms: string[]): Sys
 }
 
 /** The mild, always-on version of everything that lingers in the house. */
+/**
+ * Every hazard that wasn't contained keeps running at full strength, in the
+ * rooms it hit, through every regroup and minigame until it is repaired.
+ */
 export class LingeringSystem implements System {
-  private fire: Fire;
-  private monkeys: Monkeys;
-  constructor(private ctx: MGContext) {
-    const tags = ctx.house.tags;
-    const burning = Object.keys(tags).filter((r) => tags[r].includes('burning'));
-    const monkeyRooms = Object.keys(tags).filter((r) => tags[r].includes('monkeys'));
-    this.fire = new Fire(ctx, burning, burning.length * 2, 0, false);
-    this.monkeys = new Monkeys(ctx, monkeyRooms, 1);
+  private hazards: System[];
+  constructor(ctx: MGContext, effects: ActiveEffect[]) {
+    // Hits from old hazards don't count against this round's containment:
+    // give them their own hit counter, sharing everything else with ctx.
+    const lingerCtx: MGContext = Object.create(ctx);
+    lingerCtx.hazardHits = [0, 0, 0, 0];
+    this.hazards = effects.map((e) => createHazard(lingerCtx, e.card, e.rooms));
   }
   update(dt: number) {
-    for (const [room, tags] of Object.entries(this.ctx.house.tags)) {
-      if (tags.includes('dark') && !this.ctx.darkRooms.has(room)) this.ctx.darkRooms.set(room, 30);
-    }
-    this.fire.update(dt);
-    this.monkeys.update(dt);
+    for (const h of this.hazards) h.update(dt);
   }
   destroy() {
-    this.fire.destroy();
-    this.monkeys.destroy();
+    for (const h of this.hazards) h.destroy();
   }
 }
 

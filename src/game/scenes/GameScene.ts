@@ -53,6 +53,9 @@ const ITEM_LETTER: Record<string, string> = {
 };
 
 const BLANK = new VirtualPad();
+const NO_FLIP = new Set<string>();
+/** Gravity stays normal this close to a doorway, ladder, stairs or vent. */
+const EXIT_ZONE = 22;
 
 export class GameScene extends Phaser.Scene {
   private seats!: SeatConfig[];
@@ -156,7 +159,7 @@ export class GameScene extends Phaser.Scene {
     this.house?.destroy();
     this.house = new HouseView(this, deriveHouse({ effects }));
     this.ctx.house = this.house;
-    this.lingering = new LingeringSystem(this.ctx);
+    this.lingering = new LingeringSystem(this.ctx, effects);
     this.systems.unshift(this.lingering);
     if (this.avatars.length) this.setCollider();
   }
@@ -172,6 +175,20 @@ export class GameScene extends Phaser.Scene {
         return !av?.climbing;
       },
     );
+  }
+
+  /** Is the avatar standing by a way out of its room? (Flipped rooms keep these normal.) */
+  private nearExit(av: Avatar): boolean {
+    const room = av.room ? this.house.roomRect(av.room) : undefined;
+    if (!room) return false;
+    const xs: number[] = [];
+    for (const e of this.house.nav) {
+      if (e.from !== room.id && e.to !== room.id) continue;
+      if (e.kind === 'door') xs.push(e.x);
+      else if (e.climb) xs.push(e.climb.x0, e.climb.x1);
+      else if (e.from === room.id) xs.push(e.x);
+    }
+    return xs.some((x) => Math.abs(av.x - x) < EXIT_ZONE);
   }
 
   private padFor(i: number): VirtualPad {
@@ -234,7 +251,7 @@ export class GameScene extends Phaser.Scene {
           pad = brain.pad;
         } else pad = this.padFor(i);
         const mods: AvatarMods = {
-          flippedRooms: c.flippedRooms,
+          flippedRooms: this.nearExit(av) ? NO_FLIP : c.flippedRooms,
           speedMul: this.headStartSeats.has(i) && time - this.mgStart < 5000 ? 1.5 : 1,
           springBoots: this.springSeats.has(i),
         };
@@ -601,6 +618,8 @@ export class GameScene extends Phaser.Scene {
     c.hazardHits.fill(0);
     c.coinDelta.fill(0);
     const hazard = plan.card ? createHazard(c, plan.card, plan.rooms) : null;
+    // Let the goal know about this round's flipped rooms before the first frame runs.
+    if (plan.card === 'gravity') plan.rooms.forEach((r) => c.flippedRooms.add(r));
     const goal: GoalSystem = createGoal(c, plan);
     const mgSystems = [hazard, goal].filter(Boolean) as System[];
     this.springSeats = new Set(this.state.players.filter((p) => p.perks.includes('springBoots')).map((p) => p.id));

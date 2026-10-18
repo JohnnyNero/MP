@@ -15,8 +15,11 @@ function rivalsOf(plan: MinigamePlan, i: number, n: number): number[] {
   return Array.from({ length: n }, (_, j) => j).filter((j) => j !== i && (plan.format === 'ffa' || plan.teams[j] !== plan.teams[i]));
 }
 
+/** A random floor point, never in a gravity-flipped room (its floor is out of reach). */
 function randomRoomPoint(ctx: MGContext) {
-  const room = ctx.house.rooms[Math.floor(ctx.rnd() * ctx.house.rooms.length)];
+  const ok = ctx.house.rooms.filter((r) => !ctx.flippedRooms.has(r.id) && !ctx.house.tags[r.id].includes('lowgrav'));
+  const rooms = ok.length ? ok : ctx.house.rooms;
+  const room = rooms[Math.floor(ctx.rnd() * rooms.length)];
   return ctx.house.randomPoint(room.id, ctx.rnd);
 }
 
