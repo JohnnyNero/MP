@@ -23,6 +23,15 @@ export const SPRING_JUMP_V = 265;
 export const CLIMB_SPEED = 60;
 
 export const MINIGAME_SECONDS = 40;
+/** Per-goal minigame length (seconds); goals not listed use MINIGAME_SECONDS. `?mg=` overrides all. */
+export const MINIGAME_SECONDS_BY_GOAL: Record<string, number> = {
+  potato: 30,
+  king: 45,
+};
+export function minigameSeconds(goal: string): number {
+  const q = Number(new URLSearchParams(location.search).get('mg'));
+  return q > 0 ? q : MINIGAME_SECONDS_BY_GOAL[goal] ?? MINIGAME_SECONDS;
+}
 export const REGROUP_SECONDS = 18;
 
 export interface Climbable {

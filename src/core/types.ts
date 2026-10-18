@@ -171,7 +171,10 @@ export interface MinigamePlan {
   /** For 1v3: the team index of the solo player. */
   soloTeam: number;
   rouletteOptions: HazardId[];
+  /** -1 when no card was picked (empty pool, or the only card type was vetoed). */
   rouletteIndex: number;
+  /** Set when a Re-spin veto threw out the first landing (index into rouletteOptions). */
+  vetoedIndex?: number;
 }
 
 export interface MinigameResult {

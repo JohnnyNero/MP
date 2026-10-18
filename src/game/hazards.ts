@@ -6,6 +6,64 @@ import { overlaps, type MGContext, type System } from './mgContext';
 // Each hazard has an intense form (the card in play this minigame) and the
 // mild lingering form comes from room tags (see LingeringSystem).
 
+/**
+ * A hazard running this minigame. `trouble()` is how badly it got the group,
+ * 0 (untouched) .. 1 (wrecked), and feeds the containment group score.
+ * Counters live on the instance (or on the ctx it was given), so lingering
+ * hazards, which get their own ctx and instances, never count.
+ */
+export interface HazardSystem extends System {
+  trouble(): number;
+}
+
+/**
+ * Count-based measures are rates per player per REF_MS of minigame time, so
+ * they hold up for short debug rounds and low frame rates (dt is capped).
+ */
+const REF_MS = 40000;
+/** Hits (per player per REF_MS) that count as a fully failed containment. */
+const HITS_FULL = 4;
+/** Share of player-time spent in the dark / upside down that counts as full failure. */
+const DARK_FULL = 0.6;
+const FLIP_FULL = 0.25;
+/** Coins stolen (per player per REF_MS) that count as full failure. */
+const STOLEN_FULL = 3;
+
+/** count / (players * full * time), clamped to 0..1. Short rounds count as at least a quarter round. */
+function rateTrouble(count: number, players: number, full: number, elapsed: number): number {
+  return Math.min(1, count / (players * full * Math.max(0.25, elapsed / REF_MS)));
+}
+
+/** Trouble from hits, for the hazards that knock players about. */
+function withHits(ctx: MGContext, sys: System): HazardSystem {
+  let elapsed = 0;
+  return {
+    update: (dt) => {
+      elapsed += dt;
+      sys.update(dt);
+    },
+    destroy: () => sys.destroy(),
+    trouble: () => rateTrouble(ctx.hazardHits.reduce((a, b) => a + b, 0), ctx.avatars.length, HITS_FULL, elapsed),
+  };
+}
+
+/** Tracks the share of player-time spent in a bad state (in the dark, upside down). */
+class Exposure {
+  private ms = 0;
+  private elapsed = 0;
+  constructor(private ctx: MGContext, private full: number, private bad: (i: number) => boolean) {}
+  update(dt: number) {
+    this.elapsed += dt;
+    for (let i = 0; i < this.ctx.avatars.length; i++) if (this.bad(i)) this.ms += dt;
+  }
+  share() {
+    return this.ms / Math.max(1, this.elapsed * this.ctx.avatars.length);
+  }
+  trouble() {
+    return Math.min(1, this.share() / this.full);
+  }
+}
+
 function hitAvatar(ctx: MGContext, i: number, knockX = 0, stunMs?: number) {
   const av = ctx.avatars[i];
   if (av.hit(ctx.now, knockX, stunMs)) {
@@ -264,8 +322,12 @@ interface Monkey {
   fleeUntil: number;
   vx: number;
 }
-export class Monkeys implements System {
+export class Monkeys implements HazardSystem {
   monkeys: Monkey[] = [];
+  /** Coins this troop has stolen (its own count, so lingering troops don't add to it). */
+  stolen = 0;
+  /** Real time since the troop arrived: steals are paced by real-time cooldowns. */
+  private start = -1;
   constructor(private ctx: MGContext, rooms: string[], perRoom: number) {
     for (const room of rooms) {
       for (let k = 0; k < perRoom; k++) {
@@ -277,6 +339,7 @@ export class Monkeys implements System {
   }
   update(dt: number) {
     const c = this.ctx;
+    if (this.start < 0) this.start = c.now;
     for (const m of this.monkeys) {
       c.hotRooms.add(m.room);
       const r = c.house.roomRect(m.room);
@@ -295,6 +358,7 @@ export class Monkeys implements System {
         for (const { av, i } of targets) {
           if (overlaps(av, m.x, r.bottom - 6, 8, 10)) {
             c.coinDelta[i] -= 1;
+            this.stolen++;
             c.popText('-1', av.x, av.y - 12, '#ff8080');
             c.sfx('coin');
             m.fleeUntil = c.now + 2200;
@@ -305,6 +369,9 @@ export class Monkeys implements System {
       c.dangers.push({ x: m.x, y: r.bottom - 8, r: 14 });
     }
   }
+  trouble() {
+    return rateTrouble(this.stolen, this.ctx.avatars.length, STOLEN_FULL, this.start < 0 ? 0 : this.ctx.now - this.start);
+  }
   destroy() {
     for (const m of this.monkeys) m.img.destroy();
   }
@@ -312,22 +379,35 @@ export class Monkeys implements System {
 
 // ------------------------------------------------------------------ factory
 
-export function createHazard(ctx: MGContext, id: HazardId, rooms: string[]): System {
+export function createHazard(ctx: MGContext, id: HazardId, rooms: string[]): HazardSystem {
+  const inRooms = (i: number) => {
+    const room = ctx.avatars[i].room;
+    return !!room && rooms.includes(room);
+  };
   switch (id) {
     case 'flood':
-      return new Flood(ctx);
+      return withHits(ctx, new Flood(ctx));
     case 'meteor':
-      return new Meteors(ctx, rooms);
+      return withHits(ctx, new Meteors(ctx, rooms));
     case 'vines':
-      return new Vines(ctx, rooms);
+      return withHits(ctx, new Vines(ctx, rooms));
     case 'stampede':
-      return new Stampede(ctx, rooms);
+      return withHits(ctx, new Stampede(ctx, rooms));
     case 'fire':
-      return new Fire(ctx, rooms, 2, 14, true);
+      return withHits(ctx, new Fire(ctx, rooms, 2, 14, true));
     case 'monkeys':
       return new Monkeys(ctx, rooms, 3);
-    case 'blackout':
-      return { update: () => rooms.forEach((r) => ctx.darkRooms.set(r, 18)), destroy: () => {} };
+    case 'blackout': {
+      const dark = new Exposure(ctx, DARK_FULL, inRooms);
+      return {
+        update: (dt) => {
+          rooms.forEach((r) => ctx.darkRooms.set(r, 18));
+          dark.update(dt);
+        },
+        destroy: () => {},
+        trouble: () => dark.trouble(),
+      };
+    }
     case 'gravity': {
       const marks = rooms.flatMap((id) => {
         const r = ctx.house.roomRect(id);
@@ -338,13 +418,17 @@ export function createHazard(ctx: MGContext, id: HazardId, rooms: string[]): Sys
           .setDepth(-9);
         return [tint, label];
       });
+      const flipped = new Exposure(ctx, FLIP_FULL, (i) => ctx.avatars[i].flipped && inRooms(i));
       return {
-        update: () =>
+        update: (dt) => {
           rooms.forEach((r) => {
             ctx.flippedRooms.add(r);
             ctx.hotRooms.add(r);
-          }),
+          });
+          flipped.update(dt);
+        },
         destroy: () => marks.forEach((m) => m.destroy()),
+        trouble: () => flipped.trouble(),
       };
     }
   }

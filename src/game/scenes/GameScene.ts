@@ -21,14 +21,14 @@ import type { GameState, GoalId, HazardId, MinigamePlan } from '../../core/types
 import { Avatar, type AvatarMods } from '../avatar';
 import { BoardPanel } from '../boardPanel';
 import { BotBrain, type BotGoal } from '../botBrain';
-import { MINIGAME_SECONDS, PLAYER_CSS, REGROUP_SECONDS, W, ZOOM } from '../config';
+import { minigameSeconds, PLAYER_COLORS, PLAYER_CSS, REGROUP_SECONDS, W, ZOOM } from '../config';
 import { createGoal, safeRoomGoal, type GoalSystem } from '../goals';
 import { createHazard, DarkOverlay, LingeringSystem } from '../hazards';
 import { HouseView } from '../houseView';
 import { inputHub, VirtualPad } from '../input';
 import type { MGContext, System } from '../mgContext';
 import { sfx } from '../sfx';
-import { Menu, panel, text } from '../ui';
+import { bevelBox, buttonName, C16, drawIcon, gfxPlot, keycap, Menu, mix, onCanvasTap, panel, text, Toaster } from '../ui';
 
 export interface SeatConfig {
   name: string;
@@ -42,15 +42,10 @@ export interface GameSceneData {
   seed: number;
 }
 
-const ITEM_LETTER: Record<string, string> = {
-  doubleDie: 'D',
-  reroll: 'R',
-  pushBack: 'P',
-  warpSwap: 'W',
-  respin: 'S',
-  headStart: 'h',
-  springBoots: 'b',
-};
+/** The guided first round runs once per session (page load). */
+let tutorialDone = false;
+/** Width of one player's HUD chip. */
+const CHIP_W = 94;
 
 const BLANK = new VirtualPad();
 const NO_FLIP = new Set<string>();
@@ -81,6 +76,15 @@ export class GameScene extends Phaser.Scene {
   private headStartSeats = new Set<number>();
   private rnd!: () => number;
   private quitting = false;
+  private hudGfx: Phaser.GameObjects.Graphics[] = [];
+  private hudSig: string[] = [];
+  private toaster!: Toaster;
+  /** Guided first round: contextual tips and in-world control glyphs. */
+  private tutorial = false;
+  private tipsShown = new Set<string>();
+  private glyphs: Phaser.GameObjects.Container[] = [];
+  private menuOpen = false;
+  private glyphSig = '';
 
   constructor() {
     super('game');
@@ -111,6 +115,13 @@ export class GameScene extends Phaser.Scene {
     this.mgStart = -1e9;
     this.springSeats = new Set();
     this.headStartSeats = new Set();
+    this.hudGfx = [];
+    this.hudSig = [];
+    this.tipsShown = new Set();
+    this.glyphs = [];
+    this.menuOpen = false;
+    const tq = new URLSearchParams(location.search).get('tutorial');
+    this.tutorial = tq === '1' || (tq !== '0' && !tutorialDone && data.seats.some((s) => !s.isBot));
   }
 
   create() {
@@ -141,6 +152,7 @@ export class GameScene extends Phaser.Scene {
     this.dark = new DarkOverlay(this.ctx);
     this.panel = new BoardPanel(this, this.state);
     this.buildHud();
+    this.toaster = new Toaster(this, 30, this.tutorial ? `${this.backName()} = skip tips` : '');
     this.input.keyboard!.on('keydown-ESC', () => this.quit());
     const onQuit = () => this.quit();
     window.addEventListener('tabletop-quit', onQuit);
@@ -262,6 +274,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       for (const av of this.avatars) av.body.setVelocityX(av.body.velocity.x * 0.8);
     }
+    if (this.tutorial && !this.menuOpen && this.seats.some((s, i) => !s.isBot && this.padFor(i).back)) this.endTutorial(true);
     this.dark.update();
     this.updateHud();
     const ws = this.waiters;
@@ -271,34 +284,136 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------ HUD / feedback
 
+  /** Top bar: one chip per player (colour pip, name, coin icon + count, item/perk icons) and the round. */
   private buildHud() {
-    this.add.rectangle(240, 6, 480, 12, 0x0c0814, 0.9).setDepth(95);
-    this.seats.forEach((_, i) => {
-      this.add.rectangle(6 + i * 96, 6, 6, 6, Phaser.Display.Color.HexStringToColor(PLAYER_CSS[i]).color).setDepth(96);
-      this.hudTexts.push(text(this, 12 + i * 96, 2, '', 6, '#ffffff').setDepth(96));
+    const bar = this.add.graphics().setDepth(95);
+    const bp = gfxPlot(bar);
+    bp(0, 0, 480, 14, 0x0c0814, 0.92);
+    bp(0, 14, 480, 1, C16.rimLo);
+    this.seats.forEach((s, i) => {
+      const x = 2 + i * CHIP_W;
+      const col = PLAYER_COLORS[i];
+      // Pip in the player's colour; humans get a white top-light.
+      bevelBox(bp, x, 3, 7, 9, col, s.isBot ? mix(col, 0xffffff, 0.3) : 0xffffff, mix(col, C16.ink, 0.45));
+      this.hudTexts.push(text(this, x + 9, 2, this.state.players[i].name.slice(0, 4), 8, '#ffffff').setDepth(96));
+      this.hudTexts.push(text(this, x + 42, 2, '', 8, '#ffe08a').setDepth(96));
+      this.hudGfx.push(this.add.graphics().setDepth(96));
+      this.hudSig.push('');
     });
-    this.roundText = text(this, 474, 2, '', 6, '#c0b0e0').setOrigin(1, 0).setDepth(96);
-    this.centerText = text(this, 240, 20, '', 7, '#ffffff').setOrigin(0.5, 0).setDepth(96);
+    this.roundText = text(this, 477, 2, '', 8, '#c0b0e0').setOrigin(1, 0).setDepth(96);
+    this.centerText = text(this, 240, 17, '', 8, '#ffffff', { align: 'center', wordWrap: { width: 440 } }).setOrigin(0.5, 0).setDepth(96);
   }
 
   private updateHud() {
     this.state.players.forEach((p, i) => {
-      const inv = [...p.items, ...p.perks].map((x) => ITEM_LETTER[x]).join('');
-      const tag = p.isBot ? '' : '*';
-      this.hudTexts[i].setText(`${p.name.slice(0, 7)}${tag} ${p.coins}c ${inv}`);
+      const x = 2 + i * CHIP_W;
+      const inv = [...p.items, ...p.perks];
+      const sig = `${p.coins}|${inv.join(',')}`;
+      if (sig === this.hudSig[i]) return;
+      this.hudSig[i] = sig;
+      const ct = this.hudTexts[i * 2 + 1].setText(String(p.coins));
+      const g = this.hudGfx[i].clear();
+      drawIcon(g, 'coin', x + 34, 4);
+      const ix = x + 44 + Math.ceil(ct.width);
+      inv.forEach((it, k) => drawIcon(g, it, ix + k * 9, 4));
     });
     this.roundText.setText(`Round ${Math.max(1, this.state.round)}/${this.state.roundCap}`);
   }
 
+  // ------------------------------------------------------------ guided first round
+
+  private firstHuman(): number {
+    return this.seats.findIndex((s) => !s.isBot);
+  }
+
+  private backName(): string {
+    const h = this.firstHuman();
+    return buttonName(h >= 0 ? this.seats[h].source : 'kb1', 'back');
+  }
+
+  /** Show a tutorial tip once (only while the guided first game is on). */
+  private tip(id: string, msg: string) {
+    if (!this.tutorial || this.tipsShown.has(id)) return;
+    this.tipsShown.add(id);
+    this.toaster.show(msg);
+  }
+
+  private endTutorial(skipped = false) {
+    if (!this.tutorial) return;
+    this.tutorial = false;
+    tutorialDone = true;
+    this.clearGlyphs();
+    this.toaster.clear();
+    if (skipped) this.popText('Tips off', 240, 40, '#c0b0e0');
+  }
+
+  private clearGlyphs() {
+    this.glyphs.forEach((g) => {
+      this.tweens.killTweensOf(g);
+      g.destroy();
+    });
+    this.glyphs = [];
+    this.glyphSig = '';
+  }
+
+  /**
+   * In-world control prompts for each human: the button for the next ladder,
+   * stairs or vent on their way to `targetRoom` (or the nearest one).
+   */
+  private placeGlyphs(targetRoom = this.house.boardRoom) {
+    if (!this.tutorial) return this.clearGlyphs();
+    const specs: { i: number; x: number; y: number; btn: 'up' | 'down'; verb: string }[] = [];
+    this.seats.forEach((s, i) => {
+      if (s.isBot) return;
+      const av = this.avatars[i];
+      if (!av.room) return;
+      const route = this.house.route(av.room, targetRoom) ?? [];
+      let e = route.find((r) => r.kind !== 'door');
+      if (!e && av.room === targetRoom) return;
+      e ??= this.house.nav
+        .filter((r) => r.from === av.room && r.kind !== 'door')
+        .sort((a, b) => Math.abs(a.x - av.x) - Math.abs(b.x - av.x))[0];
+      if (!e) return;
+      let x = e.x;
+      let y: number;
+      let btn: 'up' | 'down' = 'down';
+      let verb = 'drop';
+      if (e.kind === 'climbUp' && e.climb) {
+        [x, y, btn, verb] = [e.climb.x0, e.climb.y0 - 22, 'up', e.climb.kind === 'stairs' ? 'stairs' : 'climb'];
+      } else if (e.kind === 'climbDown' && e.climb) {
+        [x, y, verb] = [e.climb.x1, e.climb.y1 - 22, 'down'];
+      } else if (e.kind === 'vent') {
+        const v = this.house.vents.find((vv) => vv.ax === e!.x || vv.bx === e!.x);
+        y = (v ? (v.ax === e.x ? v.ay : v.by) : this.house.roomRect(e.from)!.bottom) - 22;
+        verb = 'vent';
+      } else {
+        y = this.house.roomRect(e.from)!.bottom - 22;
+      }
+      // Stack prompts for several humans at the same spot.
+      const dup = specs.filter((g) => Math.abs(g.x - x) < 40 && Math.abs(g.y - y) < 20).length;
+      specs.push({ i, x: Math.max(34, Math.min(446, x)), y: y - dup * 22, btn, verb });
+    });
+    const sig = JSON.stringify(specs);
+    if (sig === this.glyphSig) return;
+    this.clearGlyphs();
+    this.glyphSig = sig;
+    for (const sp of specs) {
+      const g = keycap(this, sp.x, sp.y, this.seats[sp.i].source, sp.btn, sp.verb);
+      g.add(text(this, 0, -7, this.state.players[sp.i].name, 8, PLAYER_CSS[sp.i]).setOrigin(0.5, 1));
+      this.tweens.add({ targets: g, y: g.y - 2, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      this.glyphs.push(g);
+    }
+  }
+
   private popText(t: string, x: number, y: number, color = '#ffffff') {
-    const o = text(this, x, y, t, 7, color).setOrigin(0.5, 1).setDepth(97);
+    const o = text(this, x, y, t, 8, color).setOrigin(0.5, 1).setDepth(97);
     this.tweens.add({ targets: o, y: y - 14, alpha: 0, duration: 900, onComplete: () => o.destroy() });
   }
 
   private async banner(t: string, ms = 1400, color = '#ffffff', sub = '') {
     const g = panel(this, 90, 104, 300, sub ? 52 : 34).setDepth(98);
     const a = text(this, 240, 112, t, 10, color).setOrigin(0.5, 0).setDepth(99);
-    const b = sub ? text(this, 240, 132, sub, 7, '#c0b0e0', { align: 'center', wordWrap: { width: 280 } }).setOrigin(0.5, 0).setDepth(99) : null;
+    const b = sub ? text(this, 240, 132, sub, 8, '#c0b0e0', { align: 'center', wordWrap: { width: 280 } }).setOrigin(0.5, 0).setDepth(99) : null;
     await this.waitOrConfirm(ms);
     g.destroy();
     a.destroy();
@@ -316,6 +431,8 @@ export class GameScene extends Phaser.Scene {
       const plan = await this.houseTurn();
       await this.minigame(plan);
       if (this.state.winner !== null) break;
+      // The guided part covers the first two rounds.
+      if (this.state.round >= 2) this.endTutorial();
     }
     await this.ending();
   }
@@ -330,6 +447,12 @@ export class GameScene extends Phaser.Scene {
     const roundNo = this.state.round + 1;
     void this.banner(`ROUND ${roundNo}`, 1100, '#ffd040', 'Race back to the board! Arrival order = turn order.');
     if (this.house.boardWrapped) this.popText('Vines wrap the board! Stand at it to cut free.', 240, 40, '#80e080');
+    const firstRound = this.tutorial && roundNo === 1;
+    if (firstRound) {
+      this.time.delayedCall(1200, () => this.tip('race', 'Race to the board: arrival order = turn order.'));
+      this.placeGlyphs();
+    }
+    let glyphT = this.time.now;
     this.botGoalFn = (i) =>
       arrived.includes(i)
         ? { kind: 'idle' }
@@ -339,6 +462,10 @@ export class GameScene extends Phaser.Scene {
     await this.waitUntil(() => {
       const left = Math.max(0, Math.ceil((end - this.time.now) / 1000));
       this.centerText.setText(`Get to the board! ${left}s   arrived: ${arrived.map((i) => this.state.players[i].name).join(', ')}`);
+      if (firstRound && this.tutorial && this.time.now - glyphT > 500) {
+        glyphT = this.time.now;
+        this.placeGlyphs();
+      }
       for (let i = 0; i < n; i++) {
         if (arrived.includes(i)) continue;
         const av = this.avatars[i];
@@ -361,6 +488,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.avatarsActive = false;
     this.centerText.setText('');
+    this.clearGlyphs();
     const stragglers = this.avatars
       .map((_, i) => i)
       .filter((i) => !arrived.includes(i))
@@ -383,6 +511,8 @@ export class GameScene extends Phaser.Scene {
 
   private async boardTurns() {
     this.panel.setVisible(true);
+    // Tips sit over the bottom strip while the board is up (clear of the path and the touch buttons).
+    this.toaster.setPosition(200, 222);
     this.state.players.forEach((p, i) => this.panel.placeToken(i, p.space));
     for (const pid of this.state.turnOrder) {
       const p = this.state.players[pid];
@@ -405,6 +535,7 @@ export class GameScene extends Phaser.Scene {
       if (this.state.winner !== null) break;
     }
     this.panel.setVisible(false);
+    this.toaster.setPosition(240, 30);
   }
 
   private async animateEvent(pid: number, ev: TurnEvent) {
@@ -421,8 +552,8 @@ export class GameScene extends Phaser.Scene {
           sfx('roll');
           await this.wait(50);
         }
-        this.panel.dice.setText(ev.values.length > 1 ? `${ev.values.join('+')}=${ev.total}` : String(ev.total));
-        this.panel.setInfo(`${name} rolled ${ev.total}.`);
+        this.panel.dice.setText(ev.values.length > 1 || ev.bonus ? `${[...ev.values, ...(ev.bonus ? [ev.bonus] : [])].join('+')}=${ev.total}` : String(ev.total));
+        this.panel.setInfo(ev.bonus ? `${name} rolled ${ev.total} (+${ev.bonus} catch-up bonus for last place).` : `${name} rolled ${ev.total}.`);
         return this.wait(500);
       }
       case 'move':
@@ -437,6 +568,7 @@ export class GameScene extends Phaser.Scene {
         this.panel.setInfo(`DANGER! ${name} drew "${CARDS[ev.card].name}" into the house pool.`);
         sfx('bad');
         this.cameras.main.shake(150, 0.004);
+        this.tip('danger', 'Danger spaces add hazard cards to the house.');
         return this.wait(1200);
       case 'bought':
         this.panel.setInfo(`${name} bought ${SHOP_BY_ID[ev.id].name}.`);
@@ -447,6 +579,7 @@ export class GameScene extends Phaser.Scene {
         this.buildHouse();
         this.lineUpAtBoard();
         this.panel.refresh();
+        this.tip('repaired', 'Repairs fix the house for everyone.');
         return this.wait(900);
       case 'gateOpened':
         this.panel.refresh();
@@ -466,6 +599,10 @@ export class GameScene extends Phaser.Scene {
       case 'respinArmed':
         this.panel.setInfo(`The roulette will spin twice this round.`);
         return this.wait(600);
+      case 'bonusSteps':
+        this.panel.setInfo(`${ev.reason}: +${ev.steps} spaces!`);
+        sfx('coin');
+        return this.wait(650);
       case 'win':
         sfx('win');
         this.panel.setInfo(`${name} reached the end!`);
@@ -476,20 +613,32 @@ export class GameScene extends Phaser.Scene {
   private async decide(pid: number, dec: Decision): Promise<Answer> {
     const seat = this.seats[pid];
     if (seat.isBot) {
+      // Nothing to choose: bots roll straight away.
+      if (dec.d === 'preRoll' && dec.options.length === 1) return dec.options[0];
       if (dec.d === 'junction') this.panel.showChoices(dec.options.map((o) => o.to), pid);
       await this.wait(450);
       return botDecide(this.state, pid, dec);
+    }
+    if (dec.d === 'preRoll') {
+      // Only rolling is possible: skip the menu and go straight to the die.
+      const opts = [...dec.options].sort((a, b) => (a === 'roll' ? -1 : b === 'roll' ? 1 : 0));
+      if (opts.length === 1 && opts[0] === 'roll') return this.pressToRoll(pid, dec);
+      if (opts.length) {
+        const ans = await this.menuDecide(
+          pid,
+          dec,
+          'Use an item before rolling?',
+          opts.map((o) => (o === 'roll' ? 'Roll the die' : `Use ${SHOP_BY_ID[o].name} - ${SHOP_BY_ID[o].blurb}`)),
+          opts,
+        );
+        return ans === 'roll' ? this.pressToRoll(pid, dec) : ans;
+      }
     }
     let labels: string[] = [];
     let values: Answer[] = [];
     let title = '';
     let backValue: Answer | undefined;
     switch (dec.d) {
-      case 'preRoll':
-        title = 'Use an item before rolling?';
-        labels = dec.options.map((o) => (o === 'roll' ? 'Roll the die' : `Use ${SHOP_BY_ID[o].name}`));
-        values = dec.options;
-        break;
       case 'reroll':
         title = `You rolled ${dec.total}. Use Reroll?`;
         labels = ['Keep it', 'Reroll'];
@@ -503,12 +652,14 @@ export class GameScene extends Phaser.Scene {
         this.panel.showChoices(dec.options.map((o) => o.to), pid);
         break;
       case 'shop':
+        this.tip('shop', 'Shop: items help on the board, perks in minigames.');
         title = `Shop - you have ${this.state.players[pid].coins} coins`;
         labels = [...dec.options.map((o) => `${SHOP_BY_ID[o.id].name} ${o.price}c - ${SHOP_BY_ID[o.id].blurb}`), 'Leave'];
         values = [...dec.options.map((o) => o.id), null];
         backValue = null;
         break;
       case 'repair':
+        this.tip('repair', 'Repair spaces fix the house for everyone.');
         title = 'Repair the house? (helps everyone)';
         labels = [...dec.options.map((o) => `${CARDS[o.card].name} in ${o.rooms.map(roomName).join(', ')} (${o.price}c)`), 'Skip'];
         values = [...dec.options.map((o) => o.uid), null];
@@ -520,10 +671,19 @@ export class GameScene extends Phaser.Scene {
         values = dec.options;
         break;
     }
-    const menu = new Menu(this, 80, 140, 300, `${this.state.players[pid].name}: ${title}`, labels, PLAYER_CSS[pid]);
+    // A decision this UI doesn't know yet: let the bot logic answer it.
+    if (!labels.length) return botDecide(this.state, pid, dec);
+    return this.menuDecide(pid, dec, title, labels, values, backValue);
+  }
+
+  /** Show a menu for a human and wait for an answer (pad, or tap/click on a row). */
+  private async menuDecide(pid: number, dec: Decision, title: string, labels: string[], values: Answer[], backValue?: Answer): Promise<Answer> {
+    const menu = new Menu(this, 56, 128, 300, `${this.state.players[pid].name}: ${title}`, labels, PLAYER_CSS[pid]);
+    this.menuOpen = true;
     let result: Answer | undefined;
     const openedAt = this.time.now;
     await this.nextFrame();
+    menu.takeTap();
     await this.waitUntil(() => {
       // Nobody answering (e.g. a gamepad unplugged): let the bot logic decide.
       if (this.time.now - openedAt > 30000) {
@@ -539,13 +699,46 @@ export class GameScene extends Phaser.Scene {
         menu.move(1);
         sfx('blip');
       }
-      if (pad.confirm) result = values[menu.index];
+      if (pad.confirm || menu.takeTap()) result = values[menu.index];
       else if (pad.back && backValue !== undefined) result = backValue;
       return result !== undefined;
     });
     sfx('select');
     menu.destroy();
+    this.menuOpen = false;
     return result!;
+  }
+
+  /**
+   * The press-to-roll beat: a die spins on the board until the player presses
+   * jump (or taps). The value is cosmetic; the core rolls right after.
+   */
+  private async pressToRoll(pid: number, dec: Decision): Promise<Answer> {
+    const src = this.seats[pid].source;
+    const name = this.state.players[pid].name;
+    this.panel.setInfo(`${name}: press ${buttonName(src, 'jump')} to roll!`);
+    this.tip('roll', 'Your turn: hit the die to roll!');
+    const cap = keycap(this, 190, 119, src, 'jump', 'roll').setDepth(70);
+    this.tweens.add({ targets: cap, scale: { from: 1, to: 1.15 }, duration: 300, yoyo: true, repeat: -1 });
+    let tapped = false;
+    const offTap = onCanvasTap(this, () => (tapped = true));
+    const openedAt = this.time.now;
+    let last = 0;
+    await this.nextFrame();
+    tapped = false;
+    await this.waitUntil(() => {
+      if (this.time.now - last > 70) {
+        last = this.time.now;
+        this.panel.dice.setText(String(1 + Math.floor(this.rnd() * 6)));
+      }
+      // Auto-roll if nobody presses for a long time (e.g. a controller dropped out).
+      return this.padFor(pid).confirm || tapped || this.time.now - openedAt > 30000;
+    });
+    offTap();
+    this.tweens.killTweensOf(cap);
+    cap.destroy();
+    sfx('select');
+    return dec.d === 'preRoll' && dec.options.includes('roll') ? 'roll' : null;
   }
 
   // ------------------------------------------------------------ house turn
@@ -560,31 +753,64 @@ export class GameScene extends Phaser.Scene {
       plan.rooms = targetRooms(this.state, qc);
       plan.rouletteOptions = [qc];
       plan.rouletteIndex = 0;
+      delete plan.vetoedIndex;
     }
     const qg = q.get('goal') as GoalId | null;
     if (qg && GOALS.some((g) => g.id === qg)) plan.goal = qg;
-    const objs: Phaser.GameObjects.GameObject[] = [panel(this, 40, 60, 400, 150)];
+    const objs: Phaser.GameObjects.GameObject[] = [panel(this, 40, 60, 400, 156)];
+    this.toaster.setPosition(200, 222);
     objs.push(text(this, 240, 66, 'THE HOUSE STIRS', 10, '#e080ff').setOrigin(0.5, 0));
     const opts = plan.rouletteOptions;
     if (opts.length) {
       const bw = Math.min(90, 380 / opts.length);
       const boxes = opts.map((id, k) => {
         const x = 240 - (opts.length * bw) / 2 + k * bw + bw / 2;
-        const r = this.add.rectangle(x, 104, bw - 6, 28, 0x2a1a3a).setStrokeStyle(1, 0x8a6ad0).setDepth(91);
-        const t = text(this, x, 104, CARDS[id].name, 7, '#ffffff', { align: 'center', wordWrap: { width: bw - 8 } }).setOrigin(0.5, 0.5).setDepth(92);
+        const r = this.add.rectangle(x, 104, bw - 6, 30, 0x2a1a3a).setStrokeStyle(1, 0x8a6ad0).setDepth(91);
+        const t = text(this, x, 104, CARDS[id].name, 8, '#ffffff', { align: 'center', wordWrap: { width: bw - 8 } }).setOrigin(0.5, 0.5).setDepth(92);
         objs.push(r, t);
         return r;
       });
-      const total = opts.length * 3 + plan.rouletteIndex;
-      for (let k = 0; k <= total; k++) {
-        boxes.forEach((b, j) => b.setFillStyle(j === k % opts.length ? 0x8a3ad8 : 0x2a1a3a));
-        sfx('roll');
-        await this.wait(60 + (k / total) ** 3 * 380);
-      }
-      sfx('bad');
-      this.cameras.main.shake(200, 0.005);
+      const spin = async (target: number, laps: number, skip = -1) => {
+        const live = opts.map((_, j) => j).filter((j) => j !== skip);
+        const end = laps * live.length + live.indexOf(target);
+        for (let k = 0; k <= end; k++) {
+          const at = live[k % live.length];
+          boxes.forEach((b, j) => j !== skip && b.setFillStyle(j === at ? 0x8a3ad8 : 0x2a1a3a));
+          sfx('roll');
+          await this.wait(60 + (k / Math.max(1, end)) ** 3 * 380);
+        }
+      };
+      const vetoed = plan.vetoedIndex;
+      if (vetoed !== undefined && vetoed >= 0 && vetoed < opts.length) {
+        // Re-spin veto: the first pick is thrown out and the roulette spins again.
+        await spin(vetoed, 3);
+        await this.wait(300);
+        const vb = boxes[vetoed];
+        vb.setFillStyle(0x3a2030).setStrokeStyle(1, 0xe8504a);
+        objs.push(text(this, vb.x, vb.y + 18, 'VETOED', 8, '#ff8060').setOrigin(0.5, 0).setDepth(92));
+        sfx('select');
+        await this.wait(700);
+        // Every box of the vetoed card type is out.
+        const outIdx = opts.map((id, j) => (id === opts[vetoed] ? j : -1)).filter((j) => j >= 0);
+        outIdx.forEach((j) => boxes[j].setFillStyle(0x3a2030));
+        if (plan.rouletteIndex >= 0) {
+          const live = opts.map((_, j) => j).filter((j) => !outIdx.includes(j));
+          const end = 2 * live.length + live.indexOf(plan.rouletteIndex);
+          for (let k = 0; k <= end; k++) {
+            const at = live[k % live.length];
+            live.forEach((j) => boxes[j].setFillStyle(j === at ? 0x8a3ad8 : 0x2a1a3a));
+            sfx('roll');
+            await this.wait(60 + (k / Math.max(1, end)) ** 3 * 380);
+          }
+        }
+      } else if (plan.rouletteIndex >= 0) await spin(plan.rouletteIndex, 3);
+      if (!plan.card) objs.push(text(this, 240, 78, 'Hazard vetoed!', 8, '#80e080').setOrigin(0.5, 0).setDepth(92));
+      if (plan.card) {
+        sfx('bad');
+        this.cameras.main.shake(200, 0.005);
+      } else sfx('win');
     } else {
-      objs.push(text(this, 240, 98, 'No danger cards this round.\nThe house picks a game anyway.', 8, '#c0b0e0', { align: 'center' }).setOrigin(0.5, 0));
+      objs.push(text(this, 240, 92, 'No danger cards this round.\nThe house picks a game anyway.', 8, '#c0b0e0', { align: 'center' }).setOrigin(0.5, 0));
     }
     await this.wait(700);
     const goal = GOALS.find((g) => g.id === plan.goal)!;
@@ -596,10 +822,17 @@ export class GameScene extends Phaser.Scene {
     } else lines.push(['No hazard: just the house as it is.', '#c0b0e0']);
     lines.push([`GAME: ${goal.name} - ${goal.blurb}`, '#ffe060']);
     lines.push([`FORMAT: ${this.formatLabel(plan)}`, '#80d0ff']);
-    lines.forEach(([l, col], k) => objs.push(text(this, 52, 128 + k * 12, l, 7, col, { wordWrap: { width: 380 } })));
-    objs.push(text(this, 240, 196, 'Contain the hazard together (good group score) or it lingers.', 6, '#9a90b8').setOrigin(0.5, 0));
+    let ly = 126;
+    for (const [l, col] of lines) {
+      const t = text(this, 52, ly, l, 8, col, { wordWrap: { width: 376 } });
+      objs.push(t);
+      ly += Math.max(11, t.height + 1);
+    }
+    if (plan.card) objs.push(text(this, 240, Math.max(ly + 2, 194), 'Contain the hazard together (good group score) or it lingers.', 8, '#9a90b8').setOrigin(0.5, 0));
+    if (plan.card) this.tip('contain', 'Contain the hazard together or it lingers.');
     await this.waitOrConfirm(4200, 1200);
     objs.forEach((o) => o.destroy());
+    this.toaster.setPosition(240, 30);
     return plan;
   }
 
@@ -643,7 +876,18 @@ export class GameScene extends Phaser.Scene {
     this.mgStart = this.time.now;
     this.botGoalFn = (i) => goal.botGoal(i);
     this.avatarsActive = true;
-    const secs = Number(new URLSearchParams(location.search).get('mg')) || MINIGAME_SECONDS;
+    if (this.tutorial && this.state.round <= 1) {
+      // Show each human their jump button over their head for a moment.
+      this.seats.forEach((s, i) => {
+        if (s.isBot) return;
+        const av = this.avatars[i];
+        const g = keycap(this, av.x, av.y - 22, s.source, 'jump', 'jump');
+        this.tweens.add({ targets: g, y: g.y - 8, alpha: 0, delay: 2200, duration: 600, onComplete: () => g.destroy() });
+      });
+      const gd = GOALS.find((g) => g.id === plan.goal)!;
+      this.tip('goal', `${gd.name}: ${gd.blurb}`);
+    }
+    const secs = minigameSeconds(plan.goal);
     const end = this.time.now + secs * 1000;
     await this.waitUntil(() => {
       followMarkers();
@@ -657,10 +901,10 @@ export class GameScene extends Phaser.Scene {
     await this.banner('FINISH!', 900, '#ffd040');
     markers.forEach((m) => m.destroy());
     const scores = goal.scores();
-    const n = this.avatars.length;
-    const hazardTotal = c.hazardHits.reduce((a, b) => a + b, 0);
-    const groupScore =
-      plan.goal === 'survive' ? goal.groupScore() : 0.6 * goal.groupScore() + 0.4 * (1 - Math.min(1, hazardTotal / (n * 4)));
+    // Group score: how well the group played the goal, and how little trouble
+    // this round's hazard caused (hits, time in the dark/flipped, coins stolen).
+    const trouble = hazard ? hazard.trouble() : 0;
+    const groupScore = 0.6 * goal.groupScore() + 0.4 * (1 - trouble);
     const coinDelta = [...c.coinDelta];
     this.systems = this.systems.filter((s) => !mgSystems.includes(s));
     mgSystems.forEach((s) => s.destroy());
@@ -668,38 +912,56 @@ export class GameScene extends Phaser.Scene {
     this.headStartSeats.clear();
     c.coinDelta.fill(0);
 
+    const coinsBefore = this.state.players.map((p) => p.coins);
     const rep = settle(this.state, plan, { scores, groupScore, coinDelta });
     // Results card.
-    const objs: Phaser.GameObjects.GameObject[] = [panel(this, 60, 50, 360, 170)];
-    objs.push(text(this, 240, 56, 'RESULTS', 10, '#ffd040').setOrigin(0.5, 0));
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    this.toaster.setPosition(200, 226);
+    objs.push(text(this, 240, 50, 'RESULTS', 10, '#ffd040').setOrigin(0.5, 0));
+    objs.push(text(this, 68, 66, 'rank  player  score', 8, '#9a90b8'), text(this, 212, 66, 'coins', 8, '#9a90b8'));
+    const icons = this.add.graphics().setDepth(91);
+    objs.push(icons);
     const order = this.state.players.map((_, i) => i).sort((a, b) => rep.ranks[a] - rep.ranks[b]);
     order.forEach((i, k) => {
-      const delta = coinDelta[i] ? `  (${coinDelta[i]} stolen)` : '';
+      const y0 = 78 + k * 12;
+      const before = coinsBefore[i];
+      const after = this.state.players[i].coins;
+      const d = after - before;
+      const stolen = coinDelta[i] ? ` (${coinDelta[i] > 0 ? '+' : ''}${coinDelta[i]} stolen)` : '';
       objs.push(
-        text(this, 80, 78 + k * 12, `#${rep.ranks[i]}  ${this.state.players[i].name.padEnd(6)} score ${Math.round(scores[i] * 10) / 10}   +${rep.payouts[i]} coins${delta}`, 7, PLAYER_CSS[i]),
+        text(this, 68, y0, `#${rep.ranks[i]}    ${this.state.players[i].name.slice(0, 6).padEnd(6)}  ${String(Math.round(scores[i] * 10) / 10).padEnd(6)}`, 8, PLAYER_CSS[i]),
       );
+      drawIcon(icons, 'coin', 212, y0 + 2);
+      objs.push(text(this, 222, y0, `${before} → ${after}`, 8, '#ffe08a'));
+      objs.push(text(this, 272, y0, `${d >= 0 ? '+' : ''}${d}${stolen}`, 8, d > 0 ? '#80e080' : d < 0 ? '#ff8060' : '#c0b0e0'));
     });
-    let y = 134;
-    objs.push(text(this, 80, y, `Group score: ${Math.round(groupScore * 100)}%`, 7, '#c0b0e0'));
+    let y = 132;
+    objs.push(text(this, 68, y, `Group score: ${Math.round(groupScore * 100)}%`, 8, '#c0b0e0'));
     y += 12;
     if (plan.card) {
       const name = CARDS[plan.card].name;
       if (rep.contained) {
-        objs.push(text(this, 80, y, `${name} was CONTAINED. The house is spared.`, 7, '#80e080'));
+        objs.push(text(this, 68, y, `${name} was CONTAINED. The house is spared.`, 8, '#80e080'));
         sfx('win');
       } else {
-        objs.push(text(this, 80, y, `${name} LINGERS in ${plan.rooms.map(roomName).join(', ')}.`, 7, '#ff8060'));
+        objs.push(text(this, 68, y, `${name} LINGERS in ${plan.rooms.map(roomName).join(', ')}.`, 8, '#ff8060', { wordWrap: { width: 340 } }));
         sfx('bad');
+        this.tip('linger', 'Lingering hazards stay until someone repairs them.');
       }
       y += 12;
     }
     for (const s of rep.spread) {
-      objs.push(text(this, 80, y, `The fire spreads to the ${roomName(s.rooms[0])}!`, 7, '#ff8060'));
+      objs.push(text(this, 68, y, `The fire spreads to the ${roomName(s.rooms[0])}!`, 8, '#ff8060'));
       y += 12;
     }
-    if (rep.houseWins) objs.push(text(this, 80, y, 'Time is up...', 7, '#ff4040'));
+    if (rep.houseWins) {
+      objs.push(text(this, 68, y, 'Time is up...', 8, '#ff4040'));
+      y += 12;
+    }
+    objs.push(panel(this, 50, 44, 380, Math.min(180, y - 44 + 10)));
     await this.waitOrConfirm(5000, 1200);
     objs.forEach((o) => o.destroy());
+    this.toaster.setPosition(240, 30);
     this.buildHouse();
   }
 
@@ -726,12 +988,12 @@ export class GameScene extends Phaser.Scene {
       await this.banner('THE HOUSE WINS', 2500, '#ff4040', 'Nobody reached the end in time.\nEveryone is trapped in the game.');
     }
     const standings = [...this.state.players].sort((a, b) => distToFinish(a.space) - distToFinish(b.space) || b.coins - a.coins);
-    const objs: Phaser.GameObjects.GameObject[] = [panel(this, 110, 60, 260, 130)];
+    const objs: Phaser.GameObjects.GameObject[] = [panel(this, 90, 56, 300, 140)];
     objs.push(text(this, 240, 66, 'FINAL STANDINGS', 10, '#ffd040').setOrigin(0.5, 0));
     standings.forEach((p, k) =>
-      objs.push(text(this, 130, 86 + k * 12, `${k + 1}. ${p.name.padEnd(10)} ${distToFinish(p.space)} spaces left, ${p.coins} coins`, 7, PLAYER_CSS[p.id])),
+      objs.push(text(this, 106, 84 + k * 12, `${k + 1}. ${p.name.padEnd(6)} ${String(distToFinish(p.space)).padStart(2)} spaces left, ${p.coins} coins`, 8, PLAYER_CSS[p.id])),
     );
-    objs.push(text(this, 240, 170, `Rounds played: ${this.state.round}.  Press jump/confirm (or Enter) for the title.`, 6, '#c0b0e0', { align: 'center', wordWrap: { width: 240 } }).setOrigin(0.5, 0));
+    objs.push(text(this, 240, 140, `Rounds played: ${this.state.round}.\nPress jump (or Enter) for the title.`, 8, '#c0b0e0', { align: 'center', wordWrap: { width: 270 } }).setOrigin(0.5, 0));
     const enter = this.input.keyboard!.addKey('ENTER');
     await this.wait(800);
     const allBots = this.seats.every((s) => s.isBot);

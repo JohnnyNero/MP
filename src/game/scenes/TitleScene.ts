@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PLAYER_COLORS, ZOOM } from '../config';
-import { inputHub, SOURCE_LABEL } from '../input';
+import { inputHub } from '../input';
 import { sfx } from '../sfx';
 import { bayer, bevelBox, C16, canvasImage, ctxPlot, ditherFill, gfxPlot, hex, INK_CSS, mix, panel, text } from '../ui';
 import type { GameSceneData, SeatConfig } from './GameScene';
@@ -71,35 +71,35 @@ export class TitleScene extends Phaser.Scene {
     // Seat cartridges.
     for (let i = 0; i < 4; i++) {
       const cx = 80 + i * 107;
-      const card = this.add.container(cx, 153).setDepth(88);
+      const card = this.add.container(cx, 150).setDepth(88);
       const g = this.add.graphics();
       const num = text(this, -43, -8, `P${i + 1}`, 10, '#ffffff');
-      const st = text(this, -19, -7, '', 7, '#ffffff');
+      const st = text(this, -19, -8, '', 8, '#ffffff');
       card.add([g, num, st]);
       this.cards.push({ card, g, num, state: '' });
       this.slotTexts.push(st);
     }
 
-    panel(this, 30, 177, 420, 86);
-    this.optText = text(this, 240, 183, '', 7, hex(C16.gold)).setOrigin(0.5, 0);
-    this.add.graphics().setDepth(90).fillStyle(0x3a2a78, 1).fillRect(40, 194, 400, 1).fillStyle(0x5a4a9a, 1).fillRect(40, 195, 400, 1);
+    panel(this, 30, 174, 420, 92);
+    this.optText = text(this, 240, 180, '', 8, hex(C16.gold)).setOrigin(0.5, 0);
+    this.add.graphics().setDepth(90).fillStyle(0x3a2a78, 1).fillRect(40, 192, 400, 1).fillStyle(0x5a4a9a, 1).fillRect(40, 193, 400, 1);
     const touch = inputHub.sources.has('touch');
     const help = touch
       ? [
           'Tap JUMP to join. Tap JUMP again to start. Empty seats are bots.',
-          'Joystick left/right = number of players, up/down = bot skill.',
-          'In game: drag on the left half to move, JUMP to jump, ACT to act.',
-          'Push the joystick up/down on ladders and stairs, down on vents.',
-          'Menus: joystick up/down to pick, JUMP to choose, BACK to skip.',
+          'Stick left/right = players, up/down = bot skill.',
+          'Drag on the left half to move. Tap menu rows to pick.',
+          'Stick up/down on ladders and stairs, down on vents.',
+          'First game shows tips; BACK skips them.',
         ]
       : [
-          'JOIN: press jump on your controller.  Gamepad: A = jump, X = action, B = back.',
-          `Keyboard P1: ${SOURCE_LABEL.kb1}   Keyboard P2: ${SOURCE_LABEL.kb2}`,
-          'Climb ladders/stairs with up/down. Press down on a vent to crawl through.',
-          'Player 1: left/right = players, up/down = bot skill, jump again = START.',
-          'Enter = start now (no humans = watch the bots).   Esc in game = quit to title.',
+          'JOIN: press jump.  Gamepad: A jump, X action, B back.',
+          'Keys P1: WASD, F jump, G action, Q back.  P2: arrows, K/L/J.',
+          'Up/down climbs ladders and stairs; down on a vent crawls in.',
+          'P1: left/right = players, up/down = bot skill, jump = START.',
+          'Enter = start now (no humans: watch bots).  Esc = quit to title.',
         ];
-    text(this, 42, 200, help.join('\n'), touch ? 7 : 6, '#c8bce8', { lineSpacing: touch ? 2 : 3 });
+    text(this, 42, 197, help.join('\n'), 8, '#c8bce8', { lineSpacing: 2 });
     this.refresh();
 
     const params = new URLSearchParams(location.search);

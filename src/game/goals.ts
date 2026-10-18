@@ -66,11 +66,13 @@ class Survive implements GoalSystem {
   private books: { x: number; floorY: number; t: number; shadow: Phaser.GameObjects.Image; img?: Phaser.GameObjects.Image }[] = [];
   private next = 500;
   private hits: number[];
+  private elapsed = 0;
   constructor(private ctx: MGContext) {
     this.hits = ctx.avatars.map(() => 0);
   }
   update(dt: number) {
     const c = this.ctx;
+    this.elapsed += dt;
     this.next -= dt;
     if (this.next <= 0) {
       this.next = 520;
@@ -104,9 +106,12 @@ class Survive implements GoalSystem {
   scores() {
     return this.hits.map((h, i) => 10 - h - this.ctx.hazardHits[i]);
   }
+  /** Books only: the hazard's own trouble is folded in by the scene, like every goal. */
   groupScore() {
-    const total = this.hits.reduce((a, b) => a + b, 0) + this.ctx.hazardHits.reduce((a, b) => a + b, 0);
-    return Math.max(0, 1 - total / (this.hits.length * 6));
+    // Book hits per player per 40 s: bots average ~8; 16 or more is a wipe-out.
+    const total = this.hits.reduce((a, b) => a + b, 0);
+    const per40 = total / this.hits.length / Math.max(0.25, this.elapsed / 40000);
+    return Math.max(0, 1 - per40 / 16);
   }
   botGoal(i: number): BotGoal {
     return safeRoomGoal(this.ctx, i);
@@ -195,6 +200,7 @@ class King implements GoalSystem {
   private held: number[];
   private moveIn = 0;
   private heldTime = 0;
+  private contestedTime = 0;
   private elapsed = 0;
   constructor(private ctx: MGContext, private plan: MinigamePlan) {
     this.held = ctx.avatars.map(() => 0);
@@ -218,12 +224,16 @@ class King implements GoalSystem {
       this.heldTime += dt;
       this.zoneGfx.setFillStyle(0xffd040, 0.35);
     } else this.zoneGfx.setFillStyle(0xffd040, 0.15);
+    if (sides.size > 1) this.contestedTime += dt;
   }
   scores() {
     return this.held.map((h) => Math.round(h * 10) / 10);
   }
   groupScore() {
-    return Math.min(1, this.heldTime / Math.max(1, this.elapsed) / 0.7);
+    // Held time counts fully and contested time half: with every bot piling
+    // onto the zone, held time alone sat at ~3% and King never contained.
+    const occupied = this.heldTime + 0.5 * this.contestedTime;
+    return Math.min(1, occupied / Math.max(1, this.elapsed) / 0.5);
   }
   botGoal(): BotGoal {
     return this.zone ? { kind: 'goto', x: this.zone.x + (this.ctx.rnd() - 0.5) * 10, y: this.zone.y } : { kind: 'idle' };
@@ -367,6 +377,9 @@ class Tag implements GoalSystem {
   private chaserTeam: number;
   private tags = 0;
   private runners: number;
+  private elapsed = 0;
+  /** Runner-ms spent frozen. */
+  private frozenMs = 0;
   constructor(private ctx: MGContext, private plan: MinigamePlan) {
     this.chaserTeam = plan.format === '1v3' ? plan.soloTeam : 0;
     this.runners = plan.teams.filter((t) => t !== this.chaserTeam).length;
@@ -374,8 +387,12 @@ class Tag implements GoalSystem {
   isChaser(i: number) {
     return this.plan.teams[i] === this.chaserTeam;
   }
-  update() {
+  update(dt: number) {
     const c = this.ctx;
+    this.elapsed += dt;
+    c.avatars.forEach((rn, j) => {
+      if (!this.isChaser(j) && rn.frozenUntil > c.now) this.frozenMs += dt;
+    });
     c.avatars.forEach((ch, i) => {
       if (!this.isChaser(i) || ch.isStunned(c.now)) return;
       c.avatars.forEach((rn, j) => {
@@ -396,8 +413,17 @@ class Tag implements GoalSystem {
   scores() {
     return this.plan.teams.map((_, i) => (this.isChaser(i) ? 10 * this.ratio() : 10 * (1 - this.ratio())));
   }
+  /** Share of runner-time spent frozen. */
+  frozenShare() {
+    return this.frozenMs / Math.max(1, this.elapsed * this.runners);
+  }
+  /**
+   * Runners' survival: the less time runners spend frozen, the better the
+   * group did. Bots spend ~20-25% of runner-time frozen, which scores ~0.5;
+   * 45% frozen (chasers dominating) scores 0.
+   */
   groupScore() {
-    return 0.6;
+    return Math.max(0, 1 - this.frozenShare() / 0.45);
   }
   botGoal(i: number): BotGoal {
     const c = this.ctx;

@@ -58,7 +58,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     blurb: 'Something caught alight. It spreads if nobody deals with it.',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['burning'],
-    spreadChance: 0.4,
+    spreadChance: 0.25,
     containBar: 0.65,
   },
   monkeys: {
@@ -96,8 +96,8 @@ export const SHOP: ShopEntry[] = [
   { id: 'doubleDie', kind: 'item', name: 'Double Die', blurb: 'Roll two dice this turn.', price: 8 },
   { id: 'reroll', kind: 'item', name: 'Reroll', blurb: 'Reroll once after seeing your roll.', price: 5 },
   { id: 'pushBack', kind: 'item', name: 'Push Back', blurb: 'Send a rival back 3 spaces.', price: 8 },
-  { id: 'warpSwap', kind: 'item', name: 'Warp Swap', blurb: 'Swap board places with a random rival.', price: 12 },
-  { id: 'respin', kind: 'item', name: 'Re-spin', blurb: "Force this round's roulette to spin again.", price: 6 },
+  { id: 'warpSwap', kind: 'item', name: 'Warp Swap', blurb: 'Swap board places with the leading rival.', price: 12 },
+  { id: 'respin', kind: 'item', name: 'Re-spin', blurb: 'Veto the card the roulette lands on: it picks another.', price: 6 },
   { id: 'headStart', kind: 'perk', name: 'Head Start', blurb: 'Speed boost at the start of the next minigame.', price: 5 },
   { id: 'springBoots', kind: 'perk', name: 'Spring Boots', blurb: 'Jump higher in the next minigame.', price: 5 },
 ];

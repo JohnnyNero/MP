@@ -2,17 +2,22 @@ import {
   BLUE_COINS,
   BOARD,
   FIRST_ARRIVAL_BONUS,
+  LAST_PLACE_ROLL_BONUS,
   GATE_COST,
   MAX_ITEMS,
   MAX_PERKS,
   RED_COINS,
+  REPAIR_AGE_COST,
+  REPAIR_BONUS_STEPS,
   REPAIR_COST,
+  REPAIR_MAX_COST,
   ROUND_CAP,
   STARTING_COINS,
   TOLL_COST,
 } from '../content/board';
 import { CARDS, DECK_COUNTS, GOALS, SHOP, SHOP_BY_ID } from '../content/cards';
 import { HOUSE } from '../content/house';
+import { distToFinish } from './board';
 import { deriveHouse, neighbours, roomsOnFloor } from './house';
 import { initRng, pick, rand, randInt, shuffle } from './rng';
 import type {
@@ -102,8 +107,14 @@ export function startRound(state: GameState, arrivalOrder: number[], arrivedCoun
   }
   for (const p of state.players) if (!seen.has(p.id)) order.push(p.id);
   state.turnOrder = order;
-  if (arrivedCount > 0 && arrivalOrder.length > 0 && state.round > 1) {
-    state.players[arrivalOrder[0]].coins += FIRST_ARRIVAL_BONUS;
+  // Arrival bonus (catch-up): among the players who reached the board, the
+  // one furthest from the finish gets it; ties go to the earliest arrival.
+  const arrived = order.slice(0, Math.min(arrivedCount, order.length));
+  if (arrived.length > 0 && state.round > 1) {
+    const behind = arrived.reduce((best, id) =>
+      distToFinish(state.players[id].space) > distToFinish(state.players[best].space) ? id : best,
+    );
+    state.players[behind].coins += FIRST_ARRIVAL_BONUS;
   }
   for (const p of state.players) p.color = 'neutral';
   state.pool = [];
@@ -116,12 +127,15 @@ export function startRound(state: GameState, arrivalOrder: number[], arrivedCoun
 
 export type TurnEvent =
   | { t: 'useItem'; item: ItemId }
-  | { t: 'roll'; values: number[]; total: number }
+  /** `bonus` is the catch-up +1 for last place (already included in total). */
+  | { t: 'roll'; values: number[]; total: number; bonus?: number }
   | { t: 'move'; from: string; to: string; stepsLeft: number }
   | { t: 'coins'; delta: number; reason: string }
   | { t: 'drawCard'; card: HazardId }
   | { t: 'bought'; id: ItemId | PerkId }
   | { t: 'repaired'; uid: number; card: HazardId }
+  /** Extra steps granted mid-turn (the repair reward). */
+  | { t: 'bonusSteps'; steps: number; reason: string }
   | { t: 'gateOpened'; space: string }
   | { t: 'pushed'; target: number; to: string }
   | { t: 'swapped'; a: number; b: number }
@@ -164,6 +178,28 @@ function rollDie(state: GameState): number {
   return 1 + randInt(state.rng, 'board', 6);
 }
 
+/** Catch-up: +1 to the roll of the player(s) strictly furthest from the finish. */
+export function catchUpBonus(state: GameState, pid: number): number {
+  const d = state.players.map((o) => distToFinish(o.space));
+  const max = Math.max(...d);
+  // Only a lone straggler gets it: when several players share last place (e.g. at
+  // the start) nobody does.
+  return d[pid] === max && d.filter((x) => x === max).length === 1 ? LAST_PLACE_ROLL_BONUS : 0;
+}
+
+/** The rival closest to the finish (ties: lowest id). */
+export function leadingRival(state: GameState, pid: number): PlayerState {
+  return state.players
+    .filter((o) => o.id !== pid)
+    .reduce((best, o) => (distToFinish(o.space) < distToFinish(best.space) ? o : best));
+}
+
+/** Repair price grows with how long the effect has lingered. */
+export function repairPrice(state: GameState, e: ActiveEffect): number {
+  const age = Math.max(0, state.round - e.round - 1);
+  return Math.min(REPAIR_MAX_COST, REPAIR_COST + REPAIR_AGE_COST * age);
+}
+
 export function junctionOptions(state: GameState, p: PlayerState, from: string): JunctionOption[] {
   const opts: JunctionOption[] = [];
   for (const to of BOARD.spaces[from].next) {
@@ -188,8 +224,9 @@ export function shopOptions(p: PlayerState): ShopOption[] {
 }
 
 export function repairOptions(state: GameState, p: PlayerState): RepairOption[] {
-  if (p.coins < REPAIR_COST) return [];
-  return state.effects.map((e) => ({ uid: e.uid, card: e.card, rooms: e.rooms, price: REPAIR_COST }));
+  return state.effects
+    .map((e) => ({ uid: e.uid, card: e.card, rooms: e.rooms, price: repairPrice(state, e) }))
+    .filter((o) => o.price <= p.coins);
 }
 
 function moveBack(p: PlayerState, n: number): string {
@@ -216,7 +253,8 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
         !(it === 'respin' && state.respinArmed) &&
         !(it === 'pushBack' && pushable.length === 0),
     );
-    if (usable.length === 0) break;
+    // Humans always get a press-to-roll beat, even with nothing to use.
+    if (usable.length === 0 && p.isBot) break;
     const ans = (yield { kind: 'decide', dec: { d: 'preRoll', options: ['roll', ...usable] } }) as string;
     if (ans === 'roll' || !usable.includes(ans as ItemId)) break;
     const item = ans as ItemId;
@@ -233,8 +271,7 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
       const to = moveBack(t, 3);
       yield { kind: 'event', ev: { t: 'pushed', target: t.id, to } };
     } else if (item === 'warpSwap') {
-      const rivals = state.players.filter((o) => o.id !== pid);
-      const t = pick(state.rng, 'board', rivals);
+      const t = leadingRival(state, pid);
       [p.space, t.space] = [t.space, p.space];
       [p.trail, t.trail] = [t.trail, p.trail];
       yield { kind: 'event', ev: { t: 'swapped', a: pid, b: t.id } };
@@ -242,68 +279,75 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
   }
 
   // --- roll
+  const bonus = catchUpBonus(state, pid);
   const roll = () => Array.from({ length: dice }, () => rollDie(state));
   let values = roll();
-  let total = values.reduce((a, b) => a + b, 0);
-  yield { kind: 'event', ev: { t: 'roll', values, total } };
+  let total = values.reduce((a, b) => a + b, 0) + bonus;
+  yield { kind: 'event', ev: { t: 'roll', values, total, ...(bonus ? { bonus } : {}) } };
   if (p.items.includes('reroll')) {
     const again = yield { kind: 'decide', dec: { d: 'reroll', total } };
     if (again === true) {
       p.items.splice(p.items.indexOf('reroll'), 1);
       yield { kind: 'event', ev: { t: 'useItem', item: 'reroll' } };
       values = roll();
-      total = values.reduce((a, b) => a + b, 0);
-      yield { kind: 'event', ev: { t: 'roll', values, total } };
+      total = values.reduce((a, b) => a + b, 0) + bonus;
+      yield { kind: 'event', ev: { t: 'roll', values, total, ...(bonus ? { bonus } : {}) } };
     }
   }
 
-  // --- move
+  // --- move (and land; a repair reward can send us on a few more steps)
   let steps = total;
-  while (steps > 0) {
-    const from = p.space;
-    const nexts = BOARD.spaces[from].next;
-    if (nexts.length === 0) break;
-    let to = nexts[0];
-    if (nexts.length > 1) {
-      let opts = junctionOptions(state, p, from);
-      if (opts.length === 0) {
-        // Every branch costs coins we don't have: take the first free-looking one.
-        const free = nexts.find((n) => BOARD.spaces[n].type !== 'toll' && BOARD.spaces[n].type !== 'gate') ?? nexts[0];
-        opts = [{ to: free, cost: 0, label: 'Only way' }];
+  for (;;) {
+    while (steps > 0) {
+      const from = p.space;
+      const nexts = BOARD.spaces[from].next;
+      if (nexts.length === 0) break;
+      let to = nexts[0];
+      if (nexts.length > 1) {
+        let opts = junctionOptions(state, p, from);
+        if (opts.length === 0) {
+          // Every branch costs coins we don't have: take the first free-looking one.
+          const free = nexts.find((n) => BOARD.spaces[n].type !== 'toll' && BOARD.spaces[n].type !== 'gate') ?? nexts[0];
+          opts = [{ to: free, cost: 0, label: 'Only way' }];
+        }
+        const idx =
+          opts.length === 1 ? 0 : ((yield { kind: 'decide', dec: { d: 'junction', options: opts } }) as number);
+        const choice = opts[Math.max(0, Math.min(opts.length - 1, idx | 0))];
+        to = choice.to;
+        const sp = BOARD.spaces[to];
+        if (sp.type === 'gate' && !state.openGates.includes(to)) {
+          p.coins -= GATE_COST;
+          state.openGates.push(to);
+          yield { kind: 'event', ev: { t: 'coins', delta: -GATE_COST, reason: 'Opened the shortcut' } };
+          yield { kind: 'event', ev: { t: 'gateOpened', space: to } };
+        }
       }
-      const idx =
-        opts.length === 1 ? 0 : ((yield { kind: 'decide', dec: { d: 'junction', options: opts } }) as number);
-      const choice = opts[Math.max(0, Math.min(opts.length - 1, idx | 0))];
-      to = choice.to;
+      steps -= 1;
+      p.trail.push(from);
+      p.space = to;
+      yield { kind: 'event', ev: { t: 'move', from, to, stepsLeft: steps } };
       const sp = BOARD.spaces[to];
-      if (sp.type === 'gate' && !state.openGates.includes(to)) {
-        p.coins -= GATE_COST;
-        state.openGates.push(to);
-        yield { kind: 'event', ev: { t: 'coins', delta: -GATE_COST, reason: 'Opened the shortcut' } };
-        yield { kind: 'event', ev: { t: 'gateOpened', space: to } };
+      if (sp.type === 'toll') {
+        const fee = Math.min(TOLL_COST, p.coins);
+        p.coins -= fee;
+        yield { kind: 'event', ev: { t: 'coins', delta: -fee, reason: 'Toll' } };
       }
+      if (sp.type === 'finish') {
+        state.winner = pid;
+        state.phase = 'over';
+        log(state, `${p.name} wins`);
+        yield { kind: 'event', ev: { t: 'win' } };
+        return;
+      }
+      if (steps > 0) steps += yield* passOrLandService(state, p, sp.type);
     }
-    steps -= 1;
-    p.trail.push(from);
-    p.space = to;
-    yield { kind: 'event', ev: { t: 'move', from, to, stepsLeft: steps } };
-    const sp = BOARD.spaces[to];
-    if (sp.type === 'toll') {
-      const fee = Math.min(TOLL_COST, p.coins);
-      p.coins -= fee;
-      yield { kind: 'event', ev: { t: 'coins', delta: -fee, reason: 'Toll' } };
-    }
-    if (sp.type === 'finish') {
-      state.winner = pid;
-      state.phase = 'over';
-      log(state, `${p.name} wins`);
-      yield { kind: 'event', ev: { t: 'win' } };
-      return;
-    }
-    if (steps > 0) yield* passOrLandService(state, p, sp.type);
+    const extra = yield* land(state, p, pid);
+    if (extra <= 0) return;
+    steps = extra;
   }
+}
 
-  // --- land
+function* land(state: GameState, p: PlayerState, pid: number): Generator<TurnStep, number, Answer> {
   const sp = BOARD.spaces[p.space];
   switch (sp.type) {
     case 'blue':
@@ -328,24 +372,24 @@ export function* takeTurn(state: GameState, pid: number): Generator<TurnStep, vo
     }
     case 'shop':
     case 'repair':
-      yield* passOrLandService(state, p, sp.type);
-      break;
+      return yield* passOrLandService(state, p, sp.type);
     default:
       break;
   }
+  return 0;
 }
 
 function* passOrLandService(
   state: GameState,
   p: PlayerState,
   type: string,
-): Generator<TurnStep, void, Answer> {
+): Generator<TurnStep, number, Answer> {
   if (type === 'shop') {
     const options = shopOptions(p);
-    if (options.length === 0) return;
+    if (options.length === 0) return 0;
     const ans = yield { kind: 'decide', dec: { d: 'shop', options } };
     const opt = options.find((o) => o.id === ans);
-    if (!opt) return;
+    if (!opt) return 0;
     const entry = SHOP_BY_ID[opt.id];
     p.coins -= opt.price;
     if (entry.kind === 'item') p.items.push(opt.id as ItemId);
@@ -354,16 +398,20 @@ function* passOrLandService(
     yield { kind: 'event', ev: { t: 'bought', id: opt.id } };
   } else if (type === 'repair') {
     const options = repairOptions(state, p);
-    if (options.length === 0) return;
+    if (options.length === 0) return 0;
     const ans = yield { kind: 'decide', dec: { d: 'repair', options } };
     const opt = options.find((o) => o.uid === ans);
-    if (!opt) return;
+    if (!opt) return 0;
     p.coins -= opt.price;
     state.effects = state.effects.filter((e) => e.uid !== opt.uid);
     log(state, `${p.name} repaired ${opt.card}`);
     yield { kind: 'event', ev: { t: 'coins', delta: -opt.price, reason: 'Repair' } };
     yield { kind: 'event', ev: { t: 'repaired', uid: opt.uid, card: opt.card } };
+    // Repair reward: the repairer gets a tempo boost, not just a public good.
+    yield { kind: 'event', ev: { t: 'bonusSteps', steps: REPAIR_BONUS_STEPS, reason: 'Repair reward' } };
+    return REPAIR_BONUS_STEPS;
   }
+  return 0;
 }
 
 // ---------------------------------------------------------------- house turn
@@ -395,10 +443,18 @@ export function planHouseTurn(state: GameState): MinigamePlan {
   const rouletteOptions = state.pool.map((c) => c.card);
   let card: HazardId | null = null;
   let rouletteIndex = -1;
+  let vetoedIndex: number | undefined;
   if (rouletteOptions.length > 0) {
     rouletteIndex = randInt(state.rng, 'cards', rouletteOptions.length);
-    if (state.respinArmed) rouletteIndex = randInt(state.rng, 'cards', rouletteOptions.length);
-    card = rouletteOptions[rouletteIndex];
+    if (state.respinArmed) {
+      // Veto: the card it lands on is thrown out and the roulette re-picks
+      // among the other cards. Vetoing the only card type cancels the hazard.
+      vetoedIndex = rouletteIndex;
+      const vetoed = rouletteOptions[rouletteIndex];
+      const rest = rouletteOptions.map((c, i) => (c === vetoed ? -1 : i)).filter((i) => i >= 0);
+      rouletteIndex = rest.length ? pick(state.rng, 'cards', rest) : -1;
+    }
+    card = rouletteIndex >= 0 ? rouletteOptions[rouletteIndex] : null;
   }
   const rooms = card ? targetRooms(state, card) : [];
   const { format, teams, soloTeam } = computeFormat(state);
@@ -410,7 +466,10 @@ export function planHouseTurn(state: GameState): MinigamePlan {
   state.respinArmed = false;
   state.phase = 'minigame';
   log(state, `minigame ${goal} (${format}) hazard ${card ?? 'none'}`);
-  return { card, rooms, goal, format, teams, soloTeam, rouletteOptions, rouletteIndex };
+  return {
+    card, rooms, goal, format, teams, soloTeam, rouletteOptions, rouletteIndex,
+    ...(vetoedIndex !== undefined ? { vetoedIndex } : {}),
+  };
 }
 
 // ---------------------------------------------------------------- settle
@@ -496,19 +555,25 @@ export function settle(state: GameState, plan: MinigamePlan, result: MinigameRes
   const spread: ActiveEffect[] = [];
   const house = deriveHouse(state);
   const burning = new Set(Object.keys(house.tags).filter((r) => house.tags[r].includes('burning')));
-  for (const e of [...state.effects]) {
-    const chance = CARDS[e.card].spreadChance;
-    if (!chance || e === newEffect) continue;
-    if (rand(state.rng, 'house') >= chance) continue;
-    const cands = e.rooms
-      .flatMap((r) => neighbours(r, house.connections, house.blocked))
-      .filter((r) => !burning.has(r));
-    if (cands.length === 0) continue;
-    const target = pick(state.rng, 'house', cands);
-    burning.add(target);
-    const ne: ActiveEffect = { uid: state.nextUid++, card: e.card, rooms: [target], round: state.round };
-    state.effects.push(ne);
-    spread.push(ne);
+  // At most one spread per settle: a single roll, then one random source.
+  const spreaders = state.effects.filter((e) => e !== newEffect && CARDS[e.card].spreadChance);
+  if (spreaders.length > 0) {
+    const chance = Math.max(...spreaders.map((e) => CARDS[e.card].spreadChance!));
+    if (rand(state.rng, 'house') < chance) {
+      const sources = spreaders
+        .map((e) => ({
+          e,
+          cands: e.rooms.flatMap((r) => neighbours(r, house.connections, house.blocked)).filter((r) => !burning.has(r)),
+        }))
+        .filter((x) => x.cands.length > 0);
+      if (sources.length > 0) {
+        const src = pick(state.rng, 'house', sources);
+        const target = pick(state.rng, 'house', src.cands);
+        const ne: ActiveEffect = { uid: state.nextUid++, card: src.e.card, rooms: [target], round: state.round };
+        state.effects.push(ne);
+        spread.push(ne);
+      }
+    }
   }
   let houseWins = false;
   if (state.winner === null && state.round >= state.roundCap) {

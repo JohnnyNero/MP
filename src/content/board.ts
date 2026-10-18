@@ -64,15 +64,21 @@ function buildBoard(): BoardDef {
   const link = (a: string, b: string) => spaces[a].next.push(b);
 
   add('S', 'start', 24, 52);
-  const A = seg({ name: 'A', pattern: 'bbdbrbsdbb', path: [[24, 52], [240, 52]] });
+  const A = seg({ name: 'A', pattern: 'bbdrbsbdrbb', path: [[24, 52], [240, 52]] });
   // Fork 1: toll route (fast) vs long route.
-  const T = seg({ name: 'T', pattern: 'tbdbb', path: [[240, 52], [240, 96], [306, 96]] });
-  const L = seg({ name: 'L', pattern: 'bdbrbbpbdbb', path: [[240, 52], [456, 52], [456, 96], [354, 96]] });
-  const B = seg({ name: 'B', pattern: 'bdrbbsbdbb', path: [[330, 66], [330, 96], [330, 140], [150, 140]] });
+  const T = seg({ name: 'T', pattern: 'tbdrb', path: [[240, 52], [240, 96], [306, 96]] });
+  const L = seg({ name: 'L', pattern: 'brdbrbpbdrb', path: [[240, 52], [456, 52], [456, 96], [354, 96]] });
+  const B = seg({ name: 'B', pattern: 'bdrbbsrbdbr', path: [[330, 76], [330, 140], [150, 140]] });
   // Fork 2: normal route vs shortcut gate.
-  const N = seg({ name: 'N', pattern: 'bdbrbpdbb', path: [[150, 140], [24, 140], [24, 222], [130, 222]] });
-  const SC = seg({ name: 'X', pattern: 'gdbb', path: [[150, 140], [186, 168], [160, 200]] });
-  const C = seg({ name: 'C', pattern: 'bdsrbpbdbrbf', path: [[130, 222], [160, 222], [456, 222], [456, 170]] });
+  const N = seg({ name: 'N', pattern: 'bdrbrpdbb', path: [[150, 140], [24, 140], [24, 222], [130, 222]] });
+  const SC = seg({ name: 'X', pattern: 'gdrb', path: [[150, 140], [150, 160], [184, 182], [170, 204]] });
+  // The home stretch runs right along the bottom, up the right edge (beside
+  // the legend box) and finishes under the long route.
+  const C = seg({
+    name: 'C',
+    pattern: 'bdsrbpbrdbrbdrbbdrsbrdbrf',
+    path: [[130, 222], [456, 222], [456, 120], [374, 120]],
+  });
 
   link('S', A[0]);
   link(A[A.length - 1], T[0]);
@@ -95,10 +101,17 @@ export const BOARD: BoardDef = buildBoard();
 export const STARTING_COINS = 10;
 export const BLUE_COINS = 3;
 export const RED_COINS = 3;
-export const TOLL_COST = 5;
+export const TOLL_COST = 8;
 export const GATE_COST = 15;
-export const REPAIR_COST = 10;
+/** Repair price for an effect from last round; +REPAIR_AGE_COST per extra round it lingers. */
+export const REPAIR_COST = 8;
+export const REPAIR_AGE_COST = 2;
+export const REPAIR_MAX_COST = 14;
+/** The repairer moves this many extra spaces. */
+export const REPAIR_BONUS_STEPS = 2;
 export const ROUND_CAP = 15;
 export const MAX_ITEMS = 3;
 export const MAX_PERKS = 2;
 export const FIRST_ARRIVAL_BONUS = 2;
+/** Last place on the board rolls d6 + this. */
+export const LAST_PLACE_ROLL_BONUS = 1;

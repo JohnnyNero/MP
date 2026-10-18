@@ -187,7 +187,7 @@ const TOKEN_OFF = [
 ];
 
 const INFO = { x: 38, y: 63, w: 188, h: 40 };
-const LEGEND = { x: 200, y: 146, w: 244, h: 62 };
+const LEGEND = { x: 200, y: 151, w: 244, h: 61 };
 const LINGER = { x: 20, y: 235, w: 388, h: 26 };
 const DICE = { x: 132, y: 119 };
 
@@ -197,7 +197,7 @@ const LEGEND_ITEMS: [SpaceType, string][] = [
   ['red', `-${RED_COINS} coins`],
   ['danger', 'Danger card'],
   ['shop', 'Shop'],
-  ['repair', `Repair (${REPAIR_COST})`],
+  ['repair', `Repair (${REPAIR_COST}+)`],
   ['toll', `Toll: pay ${TOLL_COST}`],
   ['gate', 'Shortcut gate'],
   ['finish', 'Finish!'],
@@ -380,13 +380,13 @@ export class BoardPanel {
     // Board title, carved in gold.
     this.root.add(text(s, 362, 69, 'TABLETOP', 10, hex(C16.gold)).setOrigin(0.5, 0));
     // Legend.
-    this.root.add(text(s, LEGEND.x + 6, LEGEND.y + 4, 'BOARD KEY', 7, hex(C16.gold)));
+    this.root.add(text(s, LEGEND.x + 6, LEGEND.y + 3, 'BOARD KEY', 8, hex(C16.gold)));
     LEGEND_ITEMS.forEach(([, label], i) => {
       const [x, y] = legendPos(i);
-      this.root.add(text(s, x + 9, y - 5, label, 7, '#d8d0f0'));
+      this.root.add(text(s, x + 9, y - 6, label, 8, '#d8d0f0'));
     });
-    this.info = text(s, INFO.x + 6, INFO.y + 5, '', 7, '#ffffff', { wordWrap: { width: INFO.w - 12 }, lineSpacing: 2 });
-    this.lingering = text(s, LINGER.x + 6, LINGER.y + 4, '', 7, '#ffb060', { wordWrap: { width: LINGER.w - 12 }, lineSpacing: 1 });
+    this.info = text(s, INFO.x + 6, INFO.y + 4, '', 8, '#ffffff', { wordWrap: { width: INFO.w - 12 }, lineSpacing: 1 });
+    this.lingering = text(s, LINGER.x + 6, LINGER.y + 3, '', 8, '#ffb060', { wordWrap: { width: LINGER.w - 12 }, lineSpacing: 0 });
     this.root.add([this.info, this.lingering]);
     this.dice = new DiceDisplay(s, this.root, DICE.x, DICE.y);
     this.refresh();

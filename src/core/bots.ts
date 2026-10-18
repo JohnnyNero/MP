@@ -1,7 +1,7 @@
 import { distToFinish } from './board';
 import { deriveHouse } from './house';
 import { rand } from './rng';
-import type { Answer, Decision } from './game';
+import { leadingRival, type Answer, type Decision } from './game';
 import type { GameState, ItemId } from './types';
 
 /** Chance (0..1) that a bot skips a sensible action, by difficulty 0..3. */
@@ -11,12 +11,6 @@ function mistake(state: GameState, pid: number): boolean {
   return rand(state.rng, 'bot') < (MISTAKE[state.players[pid].difficulty] ?? 0.25);
 }
 
-function leader(state: GameState, pid: number) {
-  return state.players
-    .filter((o) => o.id !== pid)
-    .reduce((best, o) => (distToFinish(o.space) < distToFinish(best.space) ? o : best));
-}
-
 /** Board-phase bot. Answers any Decision the turn generator yields. */
 export function botDecide(state: GameState, pid: number, dec: Decision): Answer {
   const me = state.players[pid];
@@ -24,12 +18,13 @@ export function botDecide(state: GameState, pid: number, dec: Decision): Answer 
   switch (dec.d) {
     case 'preRoll': {
       const has = (it: ItemId) => dec.options.includes(it);
-      const lead = leader(state, pid);
+      const lead = leadingRival(state, pid);
       if (has('warpSwap') && distToFinish(lead.space) + 8 < myDist && !mistake(state, pid)) return 'warpSwap';
       if (has('pushBack') && (distToFinish(lead.space) < myDist || distToFinish(lead.space) < 10) && !mistake(state, pid))
         return 'pushBack';
       if (has('doubleDie') && myDist > 6 && !mistake(state, pid)) return 'doubleDie';
-      if (has('respin') && rand(state.rng, 'bot') < 0.3) return 'respin';
+      // Veto only makes sense once there is a card in the pool to throw out.
+      if (has('respin') && state.pool.length > 0 && !mistake(state, pid)) return 'respin';
       return 'roll';
     }
     case 'reroll':
@@ -62,14 +57,22 @@ export function botDecide(state: GameState, pid: number, dec: Decision): Answer 
       return null;
     }
     case 'repair': {
+      // Repairing pays the repairer (+2 spaces), so it is a tempo buy as well
+      // as a public good. Want it when an effect touches the board room, when
+      // the house is under pressure for the rounds left, or simply when the
+      // tempo is cheap enough and we can afford it.
       const house = deriveHouse(state);
-      const nearCap = state.round >= state.roundCap - 4;
-      const pressure = state.effects.length;
-      const want = pressure >= 3 || (pressure >= 2 && me.difficulty >= 2) || (nearCap && pressure >= 1);
-      if (!want || me.coins - dec.options[0].price < 3 || mistake(state, pid)) return null;
-      // Prefer effects that touch the board's room (they slow every regroup).
-      const touchesBoard = dec.options.find((o) => o.rooms.includes(house.boardRoom));
-      return (touchesBoard ?? dec.options[0]).uid;
+      const roundsLeft = Math.max(1, state.roundCap - state.round);
+      const touchesBoard = dec.options.filter((o) => o.rooms.includes(house.boardRoom));
+      const cheapest = dec.options.reduce((a, b) => (b.price < a.price ? b : a));
+      const choice = touchesBoard.length
+        ? touchesBoard.reduce((a, b) => (b.price < a.price ? b : a))
+        : cheapest;
+      const pressure = state.effects.length * 2 >= roundsLeft || state.effects.length >= 3;
+      const tempo = choice.price <= 10 && myDist > 4;
+      const want = touchesBoard.length > 0 || pressure || tempo;
+      if (!want || me.coins - choice.price < 3 || mistake(state, pid)) return null;
+      return choice.uid;
     }
     case 'target': {
       return dec.options.reduce((best, id) =>
