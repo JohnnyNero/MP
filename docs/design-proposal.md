@@ -370,7 +370,20 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 **For now:** `DerivedHouse.damage` (0–3 per room) is derived from lingering effects and drawn as visual wreckage only.
 
-## 12c. House plan and bedrooms (in progress)
+## 12d. Procedural house (exploring)
+
+**Direction:** the house is generated procedurally for each game. It can be goofy, even nonsensical, as long as it's fun to navigate and has unique, interactable features. Owned bedrooms (Landlord) are on hold.
+
+**Prototype algorithm:**
+1. A 6×4 cell grid with a lumpy roofline.
+2. Cells merge into rooms of mixed sizes with goofy themes.
+3. A spanning tree of two-way links guarantees every room can reach the board and get back.
+4. Extra links add loops.
+5. 3–5 signature features are drawn from a deck: portal paintings, trampoline bed, chute, pole, slide, dumbwaiter, revolving bookcase, light switch, trapdoor rug.
+
+Every house is validated (all reachable, longest trip under a cap) and re-rolled if it fails. In the prototype, 1,500 seeds across all goofiness levels all passed.
+
+## 12c. House plan and bedrooms (superseded by 12d, kept for reference)
 
 **Decided:**
 - **Plan A**, the split-level family home: a sloped attic, two upstairs bedrooms around a double-height entry hall with a balcony bridge, kitchen and garage on the ground floor, and a basement with two bedrooms plus the laundry.
