@@ -70,8 +70,9 @@ average **10.1 rounds** (range 6–14), which matches the 10–12 round target.
 ### 5. Testing done
 - Headless Chromium playthroughs of every hazard × goal pairing I forced
   through URL flags, plus a keyboard-driven 2-human game.
-- A full bot game run to the ending, and a separate check of every
-  lingering effect.
+- A full bot game ran to its end (about round 10), returned to the title
+  and started a new game with no console errors. I also checked every
+  lingering effect separately with `?linger=...`.
 - A subagent code review found 11 issues, all fixed. Among them: lingering
   hazards hit players during board turns, a holding-Enter double-start,
   overlapping meteor holes, duplicate fire spread, and Push Back being
@@ -120,5 +121,5 @@ These were marked "(proposal)" in the design doc. I went with the proposals:
 | `?linger=fire,vines,meteor,stampede` | Start with a wrecked house |
 
 ## Actions minutes used
-Four runs of about 20–45 s each. The repo is public, so Actions minutes
+About six runs of 20–45 s each. The repo is public, so Actions minutes
 are free anyway.

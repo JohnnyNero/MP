@@ -551,7 +551,7 @@ export class GameScene extends Phaser.Scene {
       const boxes = opts.map((id, k) => {
         const x = 240 - (opts.length * bw) / 2 + k * bw + bw / 2;
         const r = this.add.rectangle(x, 104, bw - 6, 28, 0x2a1a3a).setStrokeStyle(1, 0x8a6ad0).setDepth(91);
-        const t = text(this, x, 104, CARDS[id].name, 7, '#ffffff', { align: 'center', wordWrap: { width: bw - 8 } }).setOrigin(0.5, 0.5);
+        const t = text(this, x, 104, CARDS[id].name, 7, '#ffffff', { align: 'center', wordWrap: { width: bw - 8 } }).setOrigin(0.5, 0.5).setDepth(92);
         objs.push(r, t);
         return r;
       });
