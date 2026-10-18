@@ -376,8 +376,9 @@ The rules engine, hazard deck, house generator and bots carry over.
   (three-pinata, MIT), about 150 grabbable debris bodies plus instanced crumbs.
 - **Disaster deck (12):** flood, tornado, lightning storm, acid rain, meteor shower,
   earthquake, stampede, giant stomp, fire, gravity flip, blackout, termites.
-- **Arena candidates:** Old House, Jungle Temple, Sinking Ship, Space Station, Giant Kitchen,
-  The Game Box, Volcano Village, Skyscraper Site.
+- **First arenas (picked):** Old House, Sinking Ship (tilts and sinks), Space Station (breach
+  suction), Skyscraper Site (crane wrecking ball), Giant Kitchen (toy scale). Later candidates:
+  Jungle Temple, The Game Box, Volcano Village.
 - **Platform:** browser on a Steam Deck docked to a TV (1920x1080, couch distance), gamepad
   first, keyboard fallback for two players, target 60 fps. Phones are not a target.
 - **Stack:** Three.js + Rapier for the real-time game; `src/core` stays the pure,
