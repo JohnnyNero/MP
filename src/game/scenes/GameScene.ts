@@ -3,6 +3,7 @@ import { CARDS, GOALS, SHOP_BY_ID } from '../../content/cards';
 import { distToFinish } from '../../core/board';
 import { botDecide } from '../../core/bots';
 import {
+  addLingeringEffect,
   applyCoinDelta,
   newGame,
   planHouseTurn,
@@ -89,6 +90,10 @@ export class GameScene extends Phaser.Scene {
       data.seats.map((s) => ({ name: s.name, isBot: s.isBot, difficulty: s.difficulty })),
     );
     this.rnd = makeRandom(data.seed ^ 0x9e3779b9);
+    // Debug: start with lingering effects, e.g. ?linger=fire,vines,meteor
+    for (const id of new URLSearchParams(location.search).get('linger')?.split(',') ?? []) {
+      if (CARDS[id as HazardId]) addLingeringEffect(this.state, id as HazardId);
+    }
     this.avatars = [];
     this.brains = [];
     this.systems = [];

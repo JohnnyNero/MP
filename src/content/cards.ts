@@ -7,7 +7,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     blurb: 'The pipes burst. Water rises on the ground floor.',
     targeting: { kind: 'floor', floor: 0 },
     lingerTags: ['wet'],
-    containBar: 0.5,
+    containBar: 0.65,
   },
   meteor: {
     id: 'meteor',
@@ -16,7 +16,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     targeting: { kind: 'floor', floor: 2 },
     lingerTags: [],
     makesHole: true,
-    containBar: 0.5,
+    containBar: 0.65,
   },
   vines: {
     id: 'vines',
@@ -25,7 +25,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     targeting: { kind: 'randomRoom' },
     lingerTags: ['overgrown'],
     blocksConnection: true,
-    containBar: 0.5,
+    containBar: 0.65,
   },
   stampede: {
     id: 'stampede',
@@ -34,7 +34,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     targeting: { kind: 'randomFloor' },
     lingerTags: ['cluttered'],
     movesBoard: true,
-    containBar: 0.5,
+    containBar: 0.65,
   },
   blackout: {
     id: 'blackout',
@@ -42,7 +42,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     blurb: 'The lights die. You can only see what is right next to you.',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['dark'],
-    containBar: 0.5,
+    containBar: 0.65,
   },
   gravity: {
     id: 'gravity',
@@ -50,7 +50,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     blurb: 'Up is down in one room.',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['lowgrav'],
-    containBar: 0.5,
+    containBar: 0.65,
   },
   fire: {
     id: 'fire',
@@ -59,7 +59,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     targeting: { kind: 'randomRoom' },
     lingerTags: ['burning'],
     spreadChance: 0.4,
-    containBar: 0.5,
+    containBar: 0.65,
   },
   monkeys: {
     id: 'monkeys',
@@ -67,7 +67,7 @@ export const CARDS: Record<HazardId, CardDef> = {
     blurb: 'Monkeys pour in and grab coins from anyone they touch.',
     targeting: { kind: 'randomRoom' },
     lingerTags: ['monkeys'],
-    containBar: 0.5,
+    containBar: 0.65,
   },
 };
 

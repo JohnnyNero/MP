@@ -522,6 +522,13 @@ export function settle(state: GameState, plan: MinigamePlan, result: MinigameRes
   return { ranks, payouts, contained, newEffect, spread, houseWins };
 }
 
+/** Put a hazard straight into the house as a lingering effect (debug/tests). */
+export function addLingeringEffect(state: GameState, card: HazardId): ActiveEffect {
+  const e = lingerEffect(state, card, targetRooms(state, card));
+  state.effects.push(e);
+  return e;
+}
+
 /** Coins changed during the real-time regroup walk (e.g. monkeys). */
 export function applyCoinDelta(state: GameState, delta: number[]): void {
   state.players.forEach((p, i) => (p.coins = Math.max(0, p.coins + (delta[i] ?? 0))));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BOARD, GATE_COST, ROUND_CAP } from '../src/content/board';
 import { distToFinish } from '../src/core/board';
-import { computePayouts, newGame, planHouseTurn, settle, startRound } from '../src/core/game';
+import { addLingeringEffect, computePayouts, newGame, planHouseTurn, settle, startRound } from '../src/core/game';
 import { deriveHouse, reachable } from '../src/core/house';
 import { runTurnSync, simulateGame } from '../src/core/sim';
 import type { MinigamePlan } from '../src/core/types';
@@ -83,6 +83,20 @@ describe('house', () => {
   it('meteor holes add a connection', () => {
     const h = deriveHouse({ effects: [{ uid: 1, card: 'meteor', rooms: ['study'], round: 1, hole: { from: 'study', to: 'bathroom' } }] });
     expect(h.connections.some((c) => c.kind === 'hole')).toBe(true);
+  });
+});
+
+describe('lingering effects', () => {
+  it('every hazard can linger and the house stays derivable', () => {
+    const s = newGame(9, four);
+    for (const id of ['flood', 'meteor', 'vines', 'stampede', 'blackout', 'gravity', 'fire', 'monkeys'] as const) {
+      addLingeringEffect(s, id);
+      addLingeringEffect(s, id);
+    }
+    const h = deriveHouse(s);
+    expect(Object.values(h.tags).flat().length).toBeGreaterThan(5);
+    const holes = s.effects.filter((e) => e.hole).map((e) => e.hole!.from);
+    expect(new Set(holes).size).toBe(holes.length);
   });
 });
 
