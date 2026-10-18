@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { PLAYER_COLORS } from './config';
+import { makeCharacterTextures } from './art/characterArt';
+import { makeHouseTextures } from './art/houseArt';
 
 // All art is generated at boot from tiny pixel maps, so the game ships
 // with no image assets. Each map row is a string; each char is a palette key.
@@ -153,4 +155,7 @@ export function makeTextures(scene: Phaser.Scene) {
   fur('boxes', ['bbbbbbbbbb......', 'bllllllllb......', 'bllllllllbbbbbbb', 'bbbbbbbbbbllllll', 'bllllllllbllllll', 'bllllllllbllllll', 'bbbbbbbbbbbbbbbb'], { b: 0x7a5a3a, l: 0xc09a6a });
   fur('desk', ['......mmm.....', '......mmm.....', 'kkkkkkkkkkkkkk', 'k.k........k.k', 'k.k........k.k', 'k.k........k.k'], { k: 0x6a4a2a, m: 0x40a0a0 });
   fur('trunk', ['.kkkkkkkkkk.', 'kbbbbbbbbbbk', 'kkkkkykkkkkk', 'kbbbbbbbbbbk', 'kbbbbbbbbbbk', 'kkkkkkkkkkkk'], { k: 0x4a2a1a, b: 0x8a5a2a, y: 0xe0c040 });
+  // Option C art: these run last and may overwrite the placeholder textures above.
+  makeHouseTextures(scene);
+  makeCharacterTextures(scene);
 }

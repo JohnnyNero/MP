@@ -311,7 +311,8 @@ class Potato implements GoalSystem {
     const h = c.avatars[this.holder];
     this.fuse -= dt;
     this.immune -= dt;
-    this.bomb.setPosition(h.x, h.y - 12).setTint(this.fuse < 2000 && Math.floor(c.now / 100) % 2 ? 0xff4040 : 0xffffff);
+    this.bomb.setTexture(Math.floor(c.now / (this.fuse < 2000 ? 80 : 200)) % 2 ? 'bomb1' : 'bomb');
+    this.bomb.setPosition(h.x, h.y - 14).setTint(this.fuse < 2000 && Math.floor(c.now / 100) % 2 ? 0xff4040 : 0xffffff);
     if (this.fuse <= 0) {
       this.booms[this.holder]++;
       h.hit(c.now, 0, 1200);

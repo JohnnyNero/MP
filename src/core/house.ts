@@ -8,6 +8,8 @@ export interface DerivedHouse {
   connections: ConnectionDef[]; // base + effect-created (holes)
   boardRoom: string;
   boardWrapped: boolean;
+  /** Visual wreckage per room, 0 (pristine) to 3 (wrecked). Gameplay rules TBD. */
+  damage: Record<string, number>;
 }
 
 /**
@@ -33,7 +35,11 @@ export function deriveHouse(state: Pick<GameState, 'effects'>): DerivedHouse {
     if (e.boardTo) boardRoom = e.boardTo;
   }
   const boardWrapped = tags[boardRoom].includes('overgrown');
-  return { tags, blocked, connections, boardRoom, boardWrapped };
+  // Until destruction rules exist, each lingering effect in a room adds a level.
+  const damage: Record<string, number> = {};
+  for (const r of HOUSE.rooms) damage[r.id] = 0;
+  for (const e of state.effects) for (const r of e.rooms) damage[r] = Math.min(3, damage[r] + 1);
+  return { tags, blocked, connections, boardRoom, boardWrapped, damage };
 }
 
 export function neighbours(roomId: string, conns: ConnectionDef[], blocked?: Set<string>): string[] {

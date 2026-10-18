@@ -297,7 +297,7 @@ export class GameScene extends Phaser.Scene {
 
   private async banner(t: string, ms = 1400, color = '#ffffff', sub = '') {
     const g = panel(this, 90, 104, 300, sub ? 52 : 34).setDepth(98);
-    const a = text(this, 240, 112, t, 12, color).setOrigin(0.5, 0).setDepth(99);
+    const a = text(this, 240, 112, t, 10, color).setOrigin(0.5, 0).setDepth(99);
     const b = sub ? text(this, 240, 132, sub, 7, '#c0b0e0', { align: 'center', wordWrap: { width: 280 } }).setOrigin(0.5, 0).setDepth(99) : null;
     await this.waitOrConfirm(ms);
     g.destroy();
@@ -520,7 +520,7 @@ export class GameScene extends Phaser.Scene {
         values = dec.options;
         break;
     }
-    const menu = new Menu(this, 150, 144, 320, `${this.state.players[pid].name}: ${title}`, labels, PLAYER_CSS[pid]);
+    const menu = new Menu(this, 80, 140, 300, `${this.state.players[pid].name}: ${title}`, labels, PLAYER_CSS[pid]);
     let result: Answer | undefined;
     const openedAt = this.time.now;
     await this.nextFrame();
@@ -564,7 +564,7 @@ export class GameScene extends Phaser.Scene {
     const qg = q.get('goal') as GoalId | null;
     if (qg && GOALS.some((g) => g.id === qg)) plan.goal = qg;
     const objs: Phaser.GameObjects.GameObject[] = [panel(this, 40, 60, 400, 150)];
-    objs.push(text(this, 240, 66, 'THE HOUSE STIRS', 12, '#e080ff').setOrigin(0.5, 0));
+    objs.push(text(this, 240, 66, 'THE HOUSE STIRS', 10, '#e080ff').setOrigin(0.5, 0));
     const opts = plan.rouletteOptions;
     if (opts.length) {
       const bw = Math.min(90, 380 / opts.length);
@@ -671,12 +671,12 @@ export class GameScene extends Phaser.Scene {
     const rep = settle(this.state, plan, { scores, groupScore, coinDelta });
     // Results card.
     const objs: Phaser.GameObjects.GameObject[] = [panel(this, 60, 50, 360, 170)];
-    objs.push(text(this, 240, 56, 'RESULTS', 12, '#ffd040').setOrigin(0.5, 0));
+    objs.push(text(this, 240, 56, 'RESULTS', 10, '#ffd040').setOrigin(0.5, 0));
     const order = this.state.players.map((_, i) => i).sort((a, b) => rep.ranks[a] - rep.ranks[b]);
     order.forEach((i, k) => {
       const delta = coinDelta[i] ? `  (${coinDelta[i]} stolen)` : '';
       objs.push(
-        text(this, 80, 78 + k * 12, `#${rep.ranks[i]}  ${this.state.players[i].name.padEnd(10)} score ${Math.round(scores[i] * 10) / 10}   +${rep.payouts[i]} coins${delta}`, 7, PLAYER_CSS[i]),
+        text(this, 80, 78 + k * 12, `#${rep.ranks[i]}  ${this.state.players[i].name.padEnd(6)} score ${Math.round(scores[i] * 10) / 10}   +${rep.payouts[i]} coins${delta}`, 7, PLAYER_CSS[i]),
       );
     });
     let y = 134;
@@ -731,7 +731,7 @@ export class GameScene extends Phaser.Scene {
     standings.forEach((p, k) =>
       objs.push(text(this, 130, 86 + k * 12, `${k + 1}. ${p.name.padEnd(10)} ${distToFinish(p.space)} spaces left, ${p.coins} coins`, 7, PLAYER_CSS[p.id])),
     );
-    objs.push(text(this, 240, 170, `Rounds played: ${this.state.round}.  Press jump/confirm (or Enter) for the title.`, 6, '#c0b0e0').setOrigin(0.5, 0));
+    objs.push(text(this, 240, 170, `Rounds played: ${this.state.round}.  Press jump/confirm (or Enter) for the title.`, 6, '#c0b0e0', { align: 'center', wordWrap: { width: 240 } }).setOrigin(0.5, 0));
     const enter = this.input.keyboard!.addKey('ENTER');
     await this.wait(800);
     const allBots = this.seats.every((s) => s.isBot);

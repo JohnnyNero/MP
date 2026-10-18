@@ -84,6 +84,7 @@ class Meteors implements System {
         const k = Math.min(1, (s.t - 650) / 260);
         s.rock.y = ROOF_Y + (s.floorY - 4 - ROOF_Y) * k;
         s.rock.rotation += dt * 0.02;
+        s.rock.setTexture(Math.floor(c.now / 90) % 2 ? 'meteor1' : 'meteor');
       }
       if (s.t >= 910 && s.t - dt < 910) {
         c.avatars.forEach((av, i) => {
@@ -182,7 +183,7 @@ class Stampede implements System {
       const dir = c.rnd() < 0.5 ? 1 : -1;
       const x = dir > 0 ? -30 : W + 30;
       const beasts = [0, 1, 2].map((k) =>
-        c.scene.add.image(x - dir * k * 22, this.floorY - 4, 'beast').setFlipX(dir < 0).setDepth(18),
+        c.scene.add.image(x - dir * k * 22, this.floorY - 5, 'beast').setFlipX(dir < 0).setDepth(18),
       );
       this.herds.push({ dir, x, floorY: this.floorY, beasts });
       c.popText('STAMPEDE!', dir > 0 ? 40 : W - 40, this.floorY - 40, '#ffcc66');
@@ -191,7 +192,8 @@ class Stampede implements System {
       h.x += h.dir * 0.16 * dt;
       h.beasts.forEach((b, k) => {
         b.x = h.x - h.dir * k * 22;
-        b.y = h.floorY - 4 - Math.abs(Math.sin((c.now + k * 90) / 70)) * 2;
+        b.y = h.floorY - 5 - Math.abs(Math.sin((c.now + k * 90) / 70)) * 2;
+        b.setTexture(Math.floor((c.now + k * 70) / 110) % 2 ? 'beast1' : 'beast');
         c.avatars.forEach((av, i) => {
           if (overlaps(av, b.x, b.y, 10, 9)) hitAvatar(c, i, h.dir * 160, 900);
         });
@@ -234,7 +236,8 @@ export class Fire implements System {
     const c = this.ctx;
     for (const f of this.flames) {
       c.hotRooms.add(f.room);
-      f.img.setScale(1 + Math.sin((c.now + f.x * 13) / 90) * 0.12, 1 + Math.sin((c.now + f.x * 7) / 70) * 0.2);
+      f.img.setTexture(['flame', 'flame1', 'flame2'][Math.floor((c.now + f.x * 37) / 100) % 3]);
+      f.img.setScale(1, 1 + Math.sin((c.now + f.x * 7) / 70) * 0.1);
       c.avatars.forEach((av, i) => {
         if (overlaps(av, f.x, f.floorY - 6, 7, 11)) hitAvatar(c, i, Math.sign(av.x - f.x) * 80, 800);
       });
@@ -268,7 +271,7 @@ export class Monkeys implements System {
       for (let k = 0; k < perRoom; k++) {
         const r = ctx.house.roomRect(room);
         const x = r.x0 + 10 + ctx.rnd() * (r.x1 - r.x0 - 20);
-        this.monkeys.push({ room, x, img: ctx.scene.add.image(x, r.bottom - 4, 'monkey').setDepth(11), fleeUntil: 0, vx: 0 });
+        this.monkeys.push({ room, x, img: ctx.scene.add.image(x, r.bottom - 5, 'monkey').setDepth(11), fleeUntil: 0, vx: 0 });
       }
     }
   }
@@ -286,7 +289,8 @@ export class Monkeys implements System {
       }
       m.vx += (want * 0.07 - m.vx) * 0.1;
       m.x = Math.max(r.x0 + 6, Math.min(r.x1 - 6, m.x + m.vx * dt));
-      m.img.setPosition(m.x, r.bottom - 4 - Math.abs(Math.sin(c.now / 110 + m.x)) * 4).setFlipX(m.vx < 0);
+      m.img.setPosition(m.x, r.bottom - 5 - Math.abs(Math.sin(c.now / 110 + m.x)) * 4).setFlipX(m.vx < 0);
+      m.img.setTexture(Math.abs(m.vx) > 0.01 && Math.floor(c.now / 120) % 2 ? 'monkey1' : 'monkey');
       if (c.now >= m.fleeUntil) {
         for (const { av, i } of targets) {
           if (overlaps(av, m.x, r.bottom - 6, 8, 10)) {

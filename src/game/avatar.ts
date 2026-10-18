@@ -3,6 +3,10 @@ import { CLIMB_SPEED, GRAVITY, JUMP_V, RUN_SPEED, SPRING_JUMP_V, type Climbable 
 import type { HouseView } from './houseView';
 import type { VirtualPad } from './input';
 
+/** Avatar frame height and the origin row (7px above the feet). */
+const SPR_H = 18;
+const SPR_ORIGIN_Y = SPR_H - 7;
+
 export interface AvatarMods {
   /** Rooms where gravity is inverted (Gravity Flip hazard). */
   flippedRooms: Set<string>;
@@ -24,6 +28,7 @@ export class Avatar {
   flipped = false;
   private ventCooldown = 0;
   private runFrame = 0;
+  private bodyFlipped = false;
 
   constructor(
     scene: Phaser.Scene,
@@ -31,10 +36,13 @@ export class Avatar {
     x: number,
     y: number,
   ) {
-    this.sprite = scene.physics.add.sprite(x, y, `avatar${seat}`);
+    // 16x18 chibi frames. Origin sits 7px above the feet so sprite.y keeps
+    // the old meaning (feet - 7) for all callers.
+    this.sprite = scene.physics.add.sprite(x, y, `avatar${seat}_idle0`);
+    this.sprite.setOrigin(0.5, SPR_ORIGIN_Y / SPR_H);
     this.sprite.setDepth(10);
     this.body = this.sprite.body as Phaser.Physics.Arcade.Body;
-    this.body.setSize(8, 13).setOffset(1, 1);
+    this.body.setSize(8, 13).setOffset(4, SPR_H - 13);
     this.body.setMaxVelocity(400, 420);
   }
 
@@ -83,6 +91,11 @@ export class Avatar {
     const lowgrav = tags.includes('lowgrav');
     this.body.setGravityY(this.flipped ? -2 * GRAVITY : lowgrav ? -0.55 * GRAVITY : 0);
     this.sprite.setFlipY(this.flipped);
+    if (this.flipped !== this.bodyFlipped) {
+      // Keep the hitbox on the feet end of the frame when upside down.
+      this.bodyFlipped = this.flipped;
+      this.body.setOffset(4, this.flipped ? 0 : SPR_H - 13);
+    }
 
     let speed = RUN_SPEED * mods.speedMul * this.slow;
     if (tags.includes('overgrown')) speed *= 0.65;
@@ -90,7 +103,8 @@ export class Avatar {
 
     // Blink while invulnerable/stunned; tint blue while frozen (tag).
     this.sprite.setAlpha(now < this.invulnUntil && Math.floor(now / 80) % 2 === 0 ? 0.35 : 1);
-    this.sprite.setTint(now < this.frozenUntil ? 0x88ccff : 0xffffff);
+    const frozen = now < this.frozenUntil;
+    this.sprite.setTint(0xffffff);
 
     if (this.climbing) {
       this.updateClimb(pad, dt, stunned);
@@ -99,7 +113,7 @@ export class Avatar {
 
     if (stunned) {
       this.body.setVelocityX(this.body.velocity.x * 0.9);
-      this.sprite.setTexture(`avatar${this.seat}`);
+      this.setFrame(frozen ? 'frozen' : Math.floor(now / 140) % 2 ? 'hurt1' : 'hurt0');
       return;
     }
 
@@ -109,12 +123,16 @@ export class Avatar {
     this.body.setVelocityX(this.body.velocity.x + (target - this.body.velocity.x) * grip);
     if (Math.abs(pad.x) > 0.1) this.sprite.setFlipX(pad.x < 0);
 
-    // Run animation.
-    if (Math.abs(this.body.velocity.x) > 10 && this.onGround) {
+    // Animation by state: ground idle/run, airborne jump/fall.
+    if (!this.onGround) {
+      const rising = this.flipped ? this.body.velocity.y > 20 : this.body.velocity.y < -20;
+      this.setFrame(rising ? 'jump' : 'fall');
+    } else if (Math.abs(this.body.velocity.x) > 10) {
       this.runFrame += dt;
-      this.sprite.setTexture(Math.floor(this.runFrame / 120) % 2 ? `avatar${this.seat}run` : `avatar${this.seat}`);
+      this.setFrame(`run${Math.floor(this.runFrame / 90) % 4}`);
     } else {
-      this.sprite.setTexture(`avatar${this.seat}`);
+      this.runFrame = 0;
+      this.setFrame(Math.floor(now / 520) % 2 ? 'idle1' : 'idle0');
     }
 
     if (pad.jump && this.onGround) {
@@ -177,7 +195,7 @@ export class Avatar {
     if (c.kind === 'stairs') dir += pad.x * Math.sign(c.x1 - c.x0);
     dir = Math.max(-1, Math.min(1, dir));
     if (!stunned) this.climbT += (dir * CLIMB_SPEED * (dt / 1000)) / len;
-    this.sprite.setTexture(Math.floor(this.climbT * 12) % 2 ? `avatar${this.seat}run` : `avatar${this.seat}`);
+    this.setFrame(Math.floor(this.climbT * 12) % 2 ? 'climb1' : 'climb0');
     if (this.climbT >= 1) {
       this.climbT = 1;
       this.placeOnClimb();
@@ -201,6 +219,11 @@ export class Avatar {
     this.climbing = null;
     this.body.allowGravity = true;
     this.body.setVelocity(0, 0);
+  }
+
+  private setFrame(name: string) {
+    const key = `avatar${this.seat}_${name}`;
+    if (this.sprite.texture.key !== key) this.sprite.setTexture(key);
   }
 
   destroy() {
