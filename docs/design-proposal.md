@@ -355,6 +355,34 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 ---
 
+## 12e. Direction change: 3D destructible arenas (decided)
+
+These decisions supersede the board-walking loop and the 2D side-cutaway presentation above.
+The rules engine, hazard deck, house generator and bots carry over.
+
+- **Framing (Option C):** each round the cursed board pulls everyone into one short,
+  destructible arena and deals a disaster from a shared deck. Survivors move up the board,
+  so the board is the scoreboard and story, not a separate game. Late rounds deal two disasters.
+- **Look:** full 3D, low-poly toy style made in Blender by script. Original wind-up
+  characters (soft vinyl body, noodle arms, visor face, die badge, wind-up key); the first
+  arena is a cosy dusk old house in the Zathura/Jumanji vein.
+- **Camera:** one shared camera at a raised three-quarter angle that frames all players,
+  with a dramatic pull-back for disaster reveals. Walls between the camera and a player fade.
+  No split screen.
+- **Movement:** wobbly active-ragdoll characters with grab, carry, throw, hang and climb,
+  built from the clean-room spec in `docs/hff-cleanroom-analysis.md`.
+- **Destruction:** pre-fractured chunks with a support graph and stress pass (Blast-style
+  design, written fresh), runtime Voronoi refracture on big impacts in a worker
+  (three-pinata, MIT), about 150 grabbable debris bodies plus instanced crumbs.
+- **Disaster deck (12):** flood, tornado, lightning storm, acid rain, meteor shower,
+  earthquake, stampede, giant stomp, fire, gravity flip, blackout, termites.
+- **Arena candidates:** Old House, Jungle Temple, Sinking Ship, Space Station, Giant Kitchen,
+  The Game Box, Volcano Village, Skyscraper Site.
+- **Platform:** browser on a Steam Deck docked to a TV (1920x1080, couch distance), gamepad
+  first, keyboard fallback for two players, target 60 fps. Phones are not a target.
+- **Stack:** Three.js + Rapier for the real-time game; `src/core` stays the pure,
+  seeded rules engine.
+
 ## 12b. Destructible rooms (in progress)
 
 **Decided:**
