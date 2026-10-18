@@ -370,6 +370,27 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 **For now:** `DerivedHouse.damage` (0–3 per room) is derived from lingering effects and drawn as visual wreckage only.
 
+## 12c. House plan and bedrooms (in progress)
+
+**Decided:**
+- **Plan A**, the split-level family home: a sloped attic, two upstairs bedrooms around a double-height entry hall with a balcony bridge, kitchen and garage on the ground floor, and a basement with two bedrooms plus the laundry.
+- **Laundry chute:** a visible, one-way chute from the attic to the hall. It replaced the hidden vent.
+- **Bedroom spin, Landlord (leaning yes):** each player owns a bedroom. Rivals who run through it during the regroup race pay rent: 1/2/3 coins by upgrade level, once per room per round, never during minigames. Coins kept in the room are a safe stash, and they spill out if the room is wrecked.
+
+**Routing rule (from research):** every bedroom guards one shortcut, and every shortcut has a free way around. The free alternatives are:
+- the balcony bridge
+- windows to the outside drainpipes
+- the kitchen stairs and garage ladder
+- a slow laundry service ladder
+- the attic ladders
+
+The paid route should save about 1.5–2.5 s (about one place in the arrival order).
+
+**Open:**
+- Whether the house can still win (keep the round cap, remove it, or a wreck count).
+- Room height: about 54 px on a fixed screen, or a slight camera zoom.
+- A trellis for climbing back up outside.
+
 ## 13. Open questions
 
 All of the first round of open questions are resolved. Remaining work is
