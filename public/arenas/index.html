@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tabletop Arenas</title>
+<style>
+  :root { --bg:#14101c; --fg:#f4ecdc; --card:#241c30; --hi:#ffd040; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font-family:system-ui,sans-serif; }
+  body { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4vh; }
+  h1 { font-size:6vh; margin:0; letter-spacing:.08em; }
+  .list { display:flex; gap:4vw; flex-wrap:wrap; justify-content:center; }
+  a { display:block; width:34vw; min-width:260px; padding:5vh 2vw; border-radius:24px; background:var(--card);
+      color:var(--fg); text-decoration:none; text-align:center; font-size:4.5vh; font-weight:700;
+      border:6px solid transparent; transition:transform .12s; outline:none; }
+  a small { display:block; font-size:2.2vh; font-weight:400; opacity:.75; margin-top:1vh; }
+  a.sel, a:focus { border-color:var(--hi); transform:scale(1.05); }
+  p { font-size:2.4vh; opacity:.7; margin:0; }
+</style>
+</head>
+<body>
+<h1>TABLETOP</h1>
+<div class="list">
+  <a href="./ship.html">Sinking Ship<small>a storm-tossed deck</small></a>
+  <a href="./kitchen.html">Giant Kitchen<small>a countertop the size of a field</small></a>
+</div>
+<p>D-pad or stick to choose, A to start. Keyboard: arrows and Enter.</p>
+<script>
+  const items = [...document.querySelectorAll('.list a')];
+  let i = 0;
+  const sel = (n) => { i = (n + items.length) % items.length; items.forEach((a, k) => a.classList.toggle('sel', k === i)); items[i].focus(); };
+  sel(0);
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') sel(i + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') sel(i - 1);
+  });
+  items.forEach((a, k) => a.addEventListener('mouseenter', () => sel(k)));
+  let prev = {}, cool = 0;
+  (function poll(t) {
+    for (const g of navigator.getGamepads ? navigator.getGamepads() : []) {
+      if (!g) continue;
+      const p = prev[g.index] || {}, b = (n) => g.buttons[n] && g.buttons[n].pressed;
+      const x = (g.axes[0] || 0) + (b(15) ? 1 : 0) - (b(14) ? 1 : 0) + (b(13) ? 1 : 0) - (b(12) ? 1 : 0);
+      if (Math.abs(x) > 0.5 && t > cool) { sel(i + Math.sign(x)); cool = t + 250; }
+      if (Math.abs(x) <= 0.5) cool = 0;
+      if (b(0) && !p.a) { location.href = items[i].href; }
+      prev[g.index] = { a: b(0) };
+    }
+    requestAnimationFrame(poll);
+  })(0);
+</script>
+</body>
+</html>
