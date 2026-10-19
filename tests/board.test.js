@@ -3,7 +3,8 @@
 // tools/probes (smoke.mjs plays a few turns in CI).
 import { describe, it, expect } from 'vitest';
 import * as L from '../public/arenas/board/layout.js';
-import { RULES, reach, behind, walkWindow, settle, newGame, land, loseCoins, moveStar, hillAwards, standings, faceUp, botGoal } from '../public/arenas/board/rules.js';
+import * as CL from '../public/arenas/cove/layout.js';
+import { RULES, reach, behind, walkWindow, settle, newGame, land, loseCoins, moveStar, placeByScore, placeBySurvival, gameCoins, standings, faceUp, botGoal } from '../public/arenas/board/rules.js';
 
 const S = L.SPACES;
 const seq = (vals) => { let k = 0; return () => vals[k++ % vals.length]; };
@@ -58,9 +59,10 @@ describe('walking', () => {
 });
 
 describe('landing, coins and the star', () => {
-  it('pays blue, charges red (never below zero)', () => {
+  it('pays blue and chests, charges red (never below zero)', () => {
     const g = newGame();
     expect(land(g, 0, 1, 'blue').coins).toBe(RULES.blue);
+    expect(land(g, 3, 5, 'chest').coins).toBe(RULES.chest);
     g.coins[1] = 1; expect(land(g, 1, 2, 'red').coins).toBe(-1); expect(g.coins[1]).toBe(0);
   });
   it('sells the star only to a bean that can pay', () => {
@@ -78,11 +80,16 @@ describe('landing, coins and the star', () => {
   });
 });
 
-describe('king of the hill and the final table', () => {
-  it('pays the longest holder, and second place when there is a clear winner', () => {
-    expect(hillAwards([3, 9, 0, 1])).toEqual([{ i: 1, coins: RULES.hillWin }, { i: 0, coins: RULES.hillSecond }]);
-    expect(hillAwards([5, 5, 1, 0])).toEqual([{ i: 0, coins: RULES.hillWin }, { i: 1, coins: RULES.hillWin }]);
-    expect(hillAwards([0, 0, 0, 0])).toEqual([]);
+describe('minigames and the final table', () => {
+  it('places score games by score, ties sharing, and pays nothing for a zero score', () => {
+    expect(placeByScore([3, 9, 0, 3]).map((r) => [r.i, r.place])).toEqual([[1, 1], [0, 2], [3, 2], [2, 4]]);
+    expect(gameCoins(placeByScore([3, 9, 0, 3])).map((r) => r.coins)).toEqual([RULES.gameCoins[0], RULES.gameCoins[1], RULES.gameCoins[1], 0]);
+    expect(gameCoins(placeByScore([0, 0, 0, 0])).every((r) => r.coins === 0)).toBe(true);
+  });
+  it('places survival games: survivors share 1st, then whoever lasted longer', () => {
+    const p = placeBySurvival(4, [{ i: 2, t: 3 }, { i: 0, t: 9 }]);
+    expect(p.map((r) => [r.i, r.place])).toEqual([[1, 1], [3, 1], [0, 3], [2, 4]]);
+    expect(placeBySurvival(3, [{ i: 0, t: 5 }, { i: 1, t: 5 }, { i: 2, t: 5 }]).map((r) => r.place)).toEqual([1, 1, 1]);
   });
   it('ranks by stars, then coins, sharing exact ties', () => {
     const g = newGame(); g.stars = [1, 2, 1, 0]; g.coins = [9, 0, 9, 30];
@@ -101,5 +108,35 @@ describe('dice and bots', () => {
     expect(botGoal(g, S, 0, walkWindow(S, 0, 6), seq([0.5]))).toBe(4);
     g.coins[0] = 0;
     expect(botGoal(g, S, 0, walkWindow(S, 2, 2), seq([0.9, 0.1]))).toBe(4);           // blue 4 over red 18
+  });
+});
+
+describe('pirate cove layout', () => {
+  const C = CL.SPACES;
+  it('is a ring of 12 with a stone shortcut and a high road back into it', () => {
+    let id = CL.START; const seen = new Set();
+    for (let k = 0; k < 12; k++) { seen.add(id); id = C[id].next[0]; }
+    expect(id).toBe(CL.START); expect(seen.size).toBe(12);
+    expect(reach(C, 0, 3).targets.sort((a, b) => a - b)).toEqual([3, 6]);          // round the ring, or over the stones
+    expect(reach(C, 3, 6).targets).toContain(8);                                    // the high road comes down onto the ring
+  });
+  it('puts every space on dry walkable ground, clear of the water', () => {
+    for (const s of C) {
+      expect(s.y).toBeGreaterThan(CL.WATER_Y + 0.4);
+      expect(s.y).toBeCloseTo(CL.heightAt(s.x, s.z), 5);
+      expect(CL.edgeDist(s.x, s.z)).toBeGreaterThan(s.tag === 'stone' ? 0.3 : 0.6);
+    }
+  });
+  it('links every waypoint into one graph', () => {
+    const adj = new Map(CL.WAYPOINTS.map((w) => [w.id, []]));
+    for (const [a, b] of CL.LINKS) { expect(adj.has(a) && adj.has(b)).toBe(true); adj.get(a).push(b); adj.get(b).push(a); }
+    const seen = new Set(['hill']), q = ['hill'];
+    while (q.length) for (const n of adj.get(q.shift())) if (!seen.has(n)) { seen.add(n); q.push(n); }
+    expect(seen.size).toBe(CL.WAYPOINTS.length);
+  });
+  it('has a lagoon to swim in and a captain\'s deck on the wreck', () => {
+    expect(CL.terrainH(CL.LAGOON.cx, CL.LAGOON.cz)).toBeLessThan(CL.WATER_Y - 0.5);
+    expect(CL.heightAt((CL.HILL.x0 + CL.HILL.x1) / 2, (CL.HILL.z0 + CL.HILL.z1) / 2)).toBeCloseTo(CL.HILL.y, 5);
+    for (const [x, y, z] of CL.SPAWNS) expect(y).toBeGreaterThan(CL.heightAt(x, z));
   });
 });

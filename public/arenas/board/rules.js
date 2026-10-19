@@ -1,7 +1,7 @@
 // Board rules (pure: no THREE, no DOM, unit-tested). The physical game decides where beans stand; these functions
 // turn that into board positions, coins and stars.
 //   spaces: [{ id, x, y, z, kind: 'blue'|'red', next: [ids] }]
-export const RULES = { startCoins: 5, blue: 3, red: 3, starCost: 10, back: 3, hillWin: 8, hillSecond: 4, fallCost: 3 };
+export const RULES = { startCoins: 5, blue: 3, red: 3, chest: 6, starCost: 10, back: 3, fallCost: 3, gameCoins: [6, 3, 1, 0] };
 
 // spaces reachable with exactly `steps` forward moves (one per fork branch) and every space passed on the way
 export function reach(spaces, from, steps) {
@@ -44,7 +44,7 @@ export function land(g, i, id, kind) {
   if (id === g.starAt) {
     if (g.coins[i] >= RULES.starCost) { g.coins[i] -= RULES.starCost; g.stars[i]++; out.star = true; out.coins = -RULES.starCost; }
     else out.short = true;
-  } else if (kind === 'blue') { g.coins[i] += RULES.blue; out.coins = RULES.blue; }
+  } else if (kind === 'blue' || kind === 'chest') { const c = RULES[kind]; g.coins[i] += c; out.coins = c; }
   else if (kind === 'red') { const c = Math.min(g.coins[i], RULES.red); g.coins[i] -= c; out.coins = -c; }
   g.log.push({ turn: g.turn, ...out });
   return out;
@@ -56,14 +56,22 @@ export function moveStar(g, spaces, rng) {
   g.starAt = ok[Math.floor(rng() * ok.length)].id;
   return g.starAt;
 }
-// king of the hill: seconds on top. Returns coin awards [{ i, coins }] for 1st and 2nd (ties share)
-export function hillAwards(secs) {
-  const order = secs.map((s, i) => ({ i, s })).filter((r) => r.s > 0.05).sort((a, b) => b.s - a.s);
-  if (!order.length) return [];
-  const top = order[0].s, first = order.filter((r) => Math.abs(r.s - top) < 0.05);
-  const rest = order.filter((r) => !first.includes(r)), second = rest.length ? rest.filter((r) => Math.abs(r.s - rest[0].s) < 0.05) : [];
-  return [...first.map((r) => ({ i: r.i, coins: RULES.hillWin })), ...(first.length === 1 ? second.map((r) => ({ i: r.i, coins: RULES.hillSecond })) : [])];
+// minigame placements, ties sharing a place: by score (higher is better; a zero score earns nothing, so it's last)
+export function placeByScore(scores) {
+  const order = scores.map((s, i) => ({ i, s })).sort((a, b) => b.s - a.s || a.i - b.i);
+  const out = []; order.forEach((r, k) => { const p = order[k - 1]; out.push({ i: r.i, place: k && Math.abs(p.s - r.s) < 0.05 ? out[k - 1].place : k + 1, score: r.s }); });
+  return out.map((r) => (r.score > 0.05 ? r : { ...r, place: scores.length, nothing: true }));
 }
+// by survival: everyone still in shares 1st; the rest by how long they lasted (out at the same moment ties)
+export function placeBySurvival(n, outs) {
+  const out = [], alive = []; for (let i = 0; i < n; i++) if (!outs.some((o) => o.i === i)) alive.push(i);
+  for (const i of alive) out.push({ i, place: 1 });
+  const rest = outs.slice().sort((a, b) => b.t - a.t); let next = alive.length + 1;
+  rest.forEach((o, k) => { const tie = k && Math.abs(rest[k - 1].t - o.t) < 0.05; out.push({ i: o.i, place: tie ? out[out.length - 1].place : next }); next++; });
+  return out;
+}
+// coins for a minigame's placements (RULES.gameCoins by place; a zero score gets none)
+export const gameCoins = (places) => places.map((r) => ({ i: r.i, place: r.place, coins: r.nothing ? 0 : RULES.gameCoins[r.place - 1] ?? 0 }));
 // final table: stars, then coins; equal stars and coins share a place
 export function standings(g) {
   const rows = g.coins.map((c, i) => ({ i, stars: g.stars[i], coins: c })).sort((a, b) => b.stars - a.stars || b.coins - a.coins || a.i - b.i);

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { ConvexGeometry } from 'three/addons/geometries/ConvexGeometry.js';
 import * as L from './layout.js';
+import { createMarkers } from './markers.js';
 
 const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0, ...o });
 function addBox(parent, b, mat, { cast = true, receive = true } = {}) {
@@ -27,7 +28,6 @@ function rampPts(r) {
 }
 
 export const SPACE_COLORS = { blue: '#4f8fe6', red: '#e2553f', star: '#f2c335' };
-const COLORS = ['#ef5a4f', '#3f86e8', '#43b65a', '#f2b51c'];
 
 function buildStatic(ctx) {
   const { scene, renderer } = ctx;
@@ -87,19 +87,6 @@ function buildStatic(ctx) {
     if (r && s.y > L.TRACK_Y + 0.05 && s.y < L.TERRACE_Y - 0.05) m.rotation.x = Math.atan2(r.y1 - r.y0, r.a0 - r.a1);   // lie flat on the slope
     root.add(m); return m;
   });
-  // reach pegs: four little coloured studs per disc, one per bean, shown on the spaces it can reach this turn
-  const pegGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.12, 12);
-  const pegMats = COLORS.map((c) => std(c, { emissive: c, emissiveIntensity: 0.35 }));
-  const pegs = L.SPACES.map((s, k) => [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]].map(([dx, dz], i) => {
-    const m = new THREE.Mesh(pegGeo, pegMats[i]); m.position.set(dx, 0.06, dz); m.visible = false; discs[k].add(m); return m;
-  }));
-  // end-of-walk arrows: a bobbing cone over each space the bean's roll ends on
-  const arrowGeo = new THREE.ConeGeometry(0.22, 0.5, 16).rotateX(Math.PI);
-  const arrows = COLORS.map((c) => [0, 1].map(() => { const m = new THREE.Mesh(arrowGeo, std(c, { emissive: c, emissiveIntensity: 0.4 })); m.visible = false; m.castShadow = true; root.add(m); return m; }));
-  // the star: a fat gold star floating over its space
-  const shape = new THREE.Shape(); for (let k = 0; k < 10; k++) { const r = k % 2 ? 0.2 : 0.46, a = Math.PI / 2 + k * Math.PI / 5; (k ? shape.lineTo : shape.moveTo).call(shape, r * Math.cos(a), r * Math.sin(a)); } shape.closePath();
-  const star = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.16, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 }).center(), std('#f2c335', { emissive: '#f2a01a', emissiveIntensity: 0.35, roughness: 0.5 }));
-  star.castShadow = true; root.add(star);
   // the hill's glow (king of the hill)
   const hillGlow = new THREE.Mesh(new THREE.PlaneGeometry(H.x1 - H.x0 - 0.1, H.z1 - H.z0 - 0.1), new THREE.MeshBasicMaterial({ color: '#ffe066', transparent: true, opacity: 0, depthWrite: false, toneMapped: false }));
   hillGlow.rotation.x = -Math.PI / 2; hillGlow.position.set((H.x0 + H.x1) / 2, H.y + 0.02, (H.z0 + H.z1) / 2); hillGlow.renderOrder = 2; root.add(hillGlow);
@@ -107,7 +94,7 @@ function buildStatic(ctx) {
   addBox(flag, { x0: -0.04, x1: 0.04, y0: 0, y1: 1.6, z0: -0.04, z1: 0.04 }, std('#6b4a2a'));
   const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.45), std('#ffd04a', { side: THREE.DoubleSide })); cloth.position.set(0.37, 1.35, 0); flag.add(cloth);
   flag.position.set((H.x0 + H.x1) / 2, H.y, H.z0 + 0.35); flag.visible = false; root.add(flag);
-  return { root, discs, pegs, arrows, star, hillGlow, flag, cloth, discMats: discs.map((d) => d.material) };
+  return { root, discs, hillGlow, flag, cloth, discMats: discs.map((d) => d.material) };
 }
 
 function buildColliders(ctx) {
@@ -122,16 +109,16 @@ function buildColliders(ctx) {
   cub({ x0: -60, x1: 60, y0: L.FLOOR_Y - 1, y1: L.FLOOR_Y, z0: -60, z1: 60 });                  // the room floor (dice and debris land there)
 }
 
-const state = { v: null, t: 0, reach: [], arrowAt: [[], [], [], []], hill: false };
+const state = { v: null, t: 0, hill: false };
 
 const arena = {
-  id: 'board', name: 'The Board', wipeText: 'TABLETOP',
+  id: 'board', name: 'The Playset', wipeText: 'TABLETOP',
   theme: { '--accent': '#ffd04a' },
   help: `<p>Every turn: <b>jump</b> to hit the die over your head, then <b>walk</b> to the space it lights up before time runs out.
     Where your bean is standing when time is up is where you land. Shove, grab and throw the others off their spaces.</p>
     <p><b style="color:${SPACE_COLORS.blue}">Blue</b> +3 coins · <b style="color:${SPACE_COLORS.red}">Red</b> −3 coins · stop on the <b style="color:#c99a10">star</b> with 10 coins to buy it.
     The red bridge in the middle is a shortcut. Fall off the table and you lose 3 coins.</p>
-    <p>Every third turn: <b>King of the Hill</b>: stay on top of the tower to score. Most stars after the last turn wins (then coins).</p>
+    <p>After each turn a minigame is called: react from wherever you stand. Most stars after the last turn wins (then coins).</p>
     <p>Move: left stick / WASD · Jump: A / Space · Grab: LT, RT, RB / F · Look up to throw · Play dead: hold Y / Q</p>`,
   camera: { pitchDeg: 40, fov: 36, minDist: 12, maxDist: 24, padX: 1.4, padZ: 1.0, padY: 0.8, center: [0, 0.8, 0], homeSize: [13, 2, 8.5],
     centerPull: 0.2, lift: 0.2, zBias: 0.3, revealFrom: 8, revealTo: 24, revealCenter: [0, 1, -0.5], revealLift: 0.6, yMin: -0.5 },
@@ -145,36 +132,23 @@ const arena = {
   botHints: { edgeDist: L.edgeDist },
   disasters: [],
 
-  init(ctx) { state.v = buildStatic(ctx); },
-  build(ctx) { buildColliders(ctx); state.reach = []; state.arrowAt = [[], [], [], []]; },
-  render(dt, ctx) {
+  init(ctx) {
+    state.v = buildStatic(ctx);
+    arena.markers = createMarkers({ THREE, root: state.v.root, anchors: state.v.discs,
+      setSpaceColor: (id, c) => state.v.discMats[id].color.set(c ?? SPACE_COLORS[L.SPACES[id].kind]) });
+  },
+  build(ctx) { buildColliders(ctx); },
+  render(dt) {
     const V = state.v; state.t += dt; const t = state.t;
-    V.star.rotation.y = t * 1.6; V.star.position.y = L.SPACES[state.starAt ?? 9].y + 1.25 + 0.12 * Math.sin(t * 2.2);
-    for (let i = 0; i < 4; i++) state.arrowAt[i].forEach((id, k) => { const a = V.arrows[i][k], s = L.SPACES[id]; a.position.set(s.x + (i % 2 ? 0.18 : -0.18), s.y + 1.45 + 0.15 * Math.sin(t * 5 + i), s.z + (i < 2 ? -0.18 : 0.18)); });
+    arena.markers.update(dt);
     V.hillGlow.material.opacity = state.hill ? 0.25 + 0.15 * Math.sin(t * 4) : 0;
     V.flag.visible = state.hill; V.cloth.rotation.y = 0.25 * Math.sin(t * 3);
   },
-  // ---- board markers, driven by the mode
-  markers: {
-    // reach[i] = space ids bean i can end on this turn (pegs), ends[i] = where its roll ends (arrows); null clears
-    show(i, ids, ends) {
-      const V = state.v;
-      for (const row of V.pegs) row[i].visible = false;
-      for (const a of V.arrows[i]) a.visible = false;
-      state.arrowAt[i] = [];
-      if (!ids) return;
-      for (const id of ids) V.pegs[id][i].visible = true;
-      state.arrowAt[i] = ends.slice(0, 2); state.arrowAt[i].forEach((id, k) => { V.arrows[i][k].visible = true; });
-    },
-    clear() { for (let i = 0; i < 4; i++) arena.markers.show(i, null); },
-    star(id) {
-      state.starAt = id; const V = state.v; const s = L.SPACES[id];
-      V.star.position.set(s.x, s.y + 1.25, s.z);
-      L.SPACES.forEach((q, k) => V.discMats[k].color.set(k === id ? SPACE_COLORS.star : SPACE_COLORS[q.kind]));
-    },
-    hill(on) { state.hill = on; },
-    starObject: () => state.v.star,
-  },
-  state: () => ({ starAt: state.starAt }),
+  // ---- for the board mode
+  layout: L,
+  minigames: ['hill'],
+  markers: null,                         // created in init (board/markers.js)
+  showHill(on) { state.hill = on; },
+  state: () => ({ starAt: arena.markers?.starAt }),
 };
 export default arena;

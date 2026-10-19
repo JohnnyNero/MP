@@ -1,13 +1,14 @@
 // Board probe: four bots play whole games and report what tuning needs: how often a bot ends its walk on the space it
-// was going for (the rest were shoved, thrown or fell), falls off the table, seconds on the hill per game, stars
-// bought, time spent per phase, and bean height on a 1080p screen during walks and the hill game.
-//   python3 -m http.server -d public 4180 &   node tools/probes/board.mjs [seeds e.g. 1,2,3] [turns]
+// was going for (the rest were shoved, thrown or fell), falls and wash-backs, each minigame's coins and outs, stars
+// bought, time spent per phase, and bean height on a 1080p screen during walks and minigames.
+//   python3 -m http.server -d public 4180 &   node tools/probes/board.mjs [seeds e.g. 1,2,3] [turns] [map: board|cove] [extra query]
 import { openArena } from './common.mjs';
 const seeds = (process.argv[2] || '1,2,3').split(',');
 const turns = +(process.argv[3] || 9);
+const map = process.argv[4] || 'board', extra = process.argv[5] || '';
 let failed = false;
 for (const seed of seeds) {
-  const A = await openArena('board', `&seed=${seed}&turns=${turns}`, { width: 1920, height: 1080 });
+  const A = await openArena(map, `&seed=${seed}&turns=${turns}${extra}`, { width: 1920, height: 1080 });
   const out = await A.page.evaluate(() => {
     const st = { hit: 0, miss: 0, px: [], phases: {}, t: 0 };
     let lastPh = '', goals = null;
@@ -21,7 +22,7 @@ for (const seed of seeds) {
         lastPh = r.phase;
       }
       st.phases[r.phase] = (st.phases[r.phase] || 0) + 0.1;
-      if ((r.phase === 'walk' || r.phase === 'hill') && k % 10 === 0) {           // bean height: feet to head top, on screen
+      if ((r.phase === 'walk' || r.phase === 'game') && k % 10 === 0) {           // bean height: feet to head top, on screen
         window.__view(1 / 60); const cam = window.__ctx.camera;
         for (const p of window.__players()) { if (p.isOut || p.stun > 0) continue; const h = p.head; V.set(h.x, h.y + 0.25, h.z).project(cam); const y1 = V.y; V.copy(p.position).project(cam); st.px.push(Math.round((y1 - V.y) / 2 * 1080)); }
       }
@@ -29,10 +30,10 @@ for (const seed of seeds) {
     }
     const g = window.__board(), px = st.px.filter((v) => v > 0).sort((a, b) => a - b), q = (f) => px[Math.floor(px.length * f)];
     return { done: !!window.__round.results, minutes: +(st.t / 60).toFixed(1), onGoal: `${st.hit}/${st.hit + st.miss}`, beanPx: { p10: q(0.1), median: q(0.5), p90: q(0.9) },
-      falls: g.log.filter((l) => l.fall != null).length, hillSecs: g.log.filter((l) => l.game).map((l) => l.secs.join('/')), stars: g.stars, coins: g.coins,
+      falls: g.log.filter((l) => l.fall != null).length, games: g.log.filter((l) => l.game).map((l) => `${l.game}: coins ${l.coins.join('/')}${l.outs.length ? ' outs ' + l.outs.map((o) => o.join('@')).join(',') : ''}`), stars: g.stars, coins: g.coins,
       phases: Object.fromEntries(Object.entries(st.phases).map(([k, v]) => [k, Math.round(v)])) };
   });
-  console.log(`seed ${seed}: ${JSON.stringify(out)}${A.errors.length ? ' ERRORS ' + JSON.stringify(A.errors.slice(0, 3)) : ''}`);
+  console.log(`${map} seed ${seed}: ${JSON.stringify(out)}${A.errors.length ? ' ERRORS ' + JSON.stringify(A.errors.slice(0, 3)) : ''}`);
   failed ||= !out.done || A.errors.length > 0;
   await A.close();
 }
