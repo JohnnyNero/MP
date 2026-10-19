@@ -174,13 +174,13 @@ export function createPlayers({ THREE, RAPIER, world, scene, hero, SkeletonUtils
     api: pl, isRagdoll: true,
     beforeUpdate() { pl.beginStep(); },
     afterStep(dt, eventQueue) { pl.afterStep(dt, eventQueue); },
-    render(dt) {
-      pl.render(dt);
+    render(dt, alpha = 1) {
+      pl.render(dt, alpha);
       const now = performance.now() / 1000;
       for (const p of players) {
         const mk = p.mk;
         if (p.isOut) { mk.stars.visible = mk.bang.visible = false; continue; }
-        const b = p.bean, t = b.pelvis.rb.translation(), h = b.head.rb.translation();
+        const b = p.bean, t = b.ipos(b.pelvis, alpha), h = b.ipos(b.head, alpha);
         p.tag.position.set(t.x, t.y - C.Y.pelvis + tagY, t.z); p.tag.material.opacity = b.ko > 0 ? 0.65 : 1;
         p.tag.material.rotation = b.heldBy > 0 ? 0.25 * Math.sin(now * 22) : 0;                       // held: the tag shakes
         mk.stars.visible = b.ko > 0;

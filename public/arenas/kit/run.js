@@ -396,7 +396,7 @@ export async function runArena(arena) {
       cam.frame(dt, win, { close: win.length > 0 });
     } else cam.frame(dt, framePoints());
     cam.apply(dt);
-    ctx.players.group?.render?.(dt);
+    ctx.players.group?.render?.(dt, renderAlpha);
     arena.render?.(dt, ctx);
     if (ph !== 'pull') {
       const pts = []; for (const p of ctx.living()) { pts.push(_cp.copy(p.position).setY(p.position.y + 0.55).clone(), _cp.copy(p.position).setY(p.position.y + 1.0).clone()); }
@@ -411,7 +411,22 @@ export async function runArena(arena) {
   }
 
   // ---------------------------------------------------------------- loop, adaptive quality
-  let noRender = false, paused = false, quality = 0, slowFor = 0;
+  let noRender = false, paused = false, quality = 0, slowFor = 0, renderAlpha = 1;
+  // render interpolation for things moved by physics (debris, loose props, a moving arena): after each step remember
+  // their last two poses; draw them blended by alpha, then put them back before the next step
+  const interp = new Map();
+  function interpTargets() { return [...(ctx.D?.group.children || []), ...(ctx.props?.group.children || []), frame.object].filter(Boolean); }
+  function interpSnapshot() {
+    const seen = new Set();
+    for (const o of interpTargets()) {
+      seen.add(o); let s = interp.get(o);
+      if (!s) interp.set(o, s = { p0: o.position.clone(), p1: o.position.clone(), q0: o.quaternion.clone(), q1: o.quaternion.clone() });
+      else { s.p0.copy(s.p1); s.q0.copy(s.q1); s.p1.copy(o.position); s.q1.copy(o.quaternion); }
+    }
+    for (const o of interp.keys()) if (!seen.has(o)) interp.delete(o);
+  }
+  function interpApply(a) { for (const [o, s] of interp) { o.position.lerpVectors(s.p0, s.p1, a); o.quaternion.slerpQuaternions(s.q0, s.q1, a); } }
+  function interpRestore() { for (const [o, s] of interp) { o.position.copy(s.p1); o.quaternion.copy(s.q1); } }
   let last = performance.now(), acc = 0, fpsAcc = 0, fpsN = 0, fps = 0, tickMs = 0;
   function adapt() {
     if (BENCH || Q.get('quality') === 'high' || noRender || paused || quality >= 2) return;
@@ -433,11 +448,12 @@ export async function runArena(arena) {
       // otherwise jitter gives 0-then-2 steps per frame and everything visibly hitches
       acc += Math.min(0.1, (Math.abs(ms - 1000 * DT) < 2.5 ? 1000 * DT : ms) / 1000); let n = 0;
       const t0 = performance.now();
-      while (acc >= DT && n < 3) { tick(DT, ms); acc -= DT; n++; }
+      while (acc >= DT && n < 3) { tick(DT, ms); interpSnapshot(); acc -= DT; n++; }
       if (n) tickMs = tickMs * 0.9 + 0.1 * (performance.now() - t0) / n;
       if (n === 3) acc = 0;
     }
-    if (!noRender) { updateView(Math.min(0.05, ms / 1000)); renderer.render(scene, camera); }
+    renderAlpha = paused || hud.helpOn ? 1 : Math.max(0, Math.min(1, acc / DT));
+    if (!noRender) { interpApply(renderAlpha); updateView(Math.min(0.05, ms / 1000)); renderer.render(scene, camera); interpRestore(); }
     requestAnimationFrame(frameLoop);
   }
   function benchShow() {

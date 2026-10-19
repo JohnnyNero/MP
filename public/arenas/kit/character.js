@@ -97,8 +97,9 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       o.castShadow = true; o.receiveShadow = false; o.frustumCulled = false;
       const n = o.material.name;
       if (n in mats) {
-        mats[n] ||= Object.assign(o.material.clone(), { name: n });
-        mats[n].color.copy(n === 'body' ? col : col.clone().lerp(WHITE, 0.4));
+        // plain matte vinyl: the export comes in as a physical material with full sheen and specular, which reads as
+        // shiny plastic on a TV (and costs more to draw)
+        mats[n] ||= new THREE.MeshStandardMaterial({ name: n, color: n === 'body' ? col : col.clone().lerp(WHITE, 0.4), roughness: 0.86, metalness: 0 });
         o.material = mats[n];
       }
       if (n === 'acc_blade') blade = o;
@@ -311,6 +312,17 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       if (parent) parent.rb.applyTorqueImpulse({ x: -tau.x, y: -tau.y, z: -tau.z }, true);
     }
     // max-distance link (a rope) solved as a velocity impulse before the physics step, equal and opposite
+    // render interpolation: the last two physics poses of the drawn parts; render() blends them by alpha (how far the
+    // screen is between two physics steps), so a frame that got two steps or none doesn't jolt the bean
+    snapshot() {
+      for (const part of [this.pelvis, this.chest, this.head, ...this.hands]) {
+        const t = part.rb.translation(), r = part.rb.rotation();
+        if (!part.ip) part.ip = { p0: V(t.x, t.y, t.z), p1: V(t.x, t.y, t.z), q0: toQ(r), q1: toQ(r) };
+        else { part.ip.p0.copy(part.ip.p1); part.ip.q0.copy(part.ip.q1); part.ip.p1.set(t.x, t.y, t.z); toQ(r, part.ip.q1); }
+      }
+    }
+    ipos(part, a, out = V()) { const ip = part.ip; if (!ip) return toV(part.rb.translation(), out); return out.lerpVectors(ip.p0, ip.p1, a); }
+    iquat(part, a, out = new THREE.Quaternion()) { const ip = part.ip; if (!ip) return toQ(part.rb.rotation(), out); return out.slerpQuaternions(ip.q0, ip.q1, a); }
     // push a world point out of the visible body (in place); returns the outward normal and depth, or null if outside
     outside(p) {
       const cp = this.chest.rb.translation(), q = toQ(this.chest.rb.rotation(), _qB);
@@ -504,7 +516,9 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
           B.setAngvel(rapV(w), true);
           const along = (bv.x - gv.x) * this.dir.x + (bv.z - gv.z) * this.dir.z;
           if (!blocked && along < this.mag * WALK) {
-            const F = this.dir.clone().multiplyScalar(0.5 * W * this.mag);
+            // the push tapers off over the last 1.2 m/s below the target speed: an on/off push at cruising speed
+            // flipped every tick and made the body shudder at 30 Hz
+            const F = this.dir.clone().multiplyScalar(0.5 * W * this.mag * Math.min(1, (this.mag * WALK - along) / 1.2));
             this.imp(B, F, dt);
             if (this.groundBody) this.groundBody.applyImpulse({ x: -F.x * dt, y: 0, z: -F.z * dt }, true);
           }
@@ -846,10 +860,10 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       prev.fadeOut(fade);
       this.anim = name;
     }
-    render(dt) {
+    render(dt, alpha = 1) {
       if (this.dead) return;
-      const P = this.pelvis.rb, pp = P.translation(), v = P.linvel();
-      const qP = toQ(P.rotation()), qC = toQ(this.chest.rb.rotation()), qH = toQ(this.head.rb.rotation());
+      const P = this.pelvis.rb, pp = this.ipos(this.pelvis, alpha), v = P.linvel();
+      const qP = this.iquat(this.pelvis, alpha), qC = this.iquat(this.chest, alpha), qH = this.iquat(this.head, alpha);
       const speed = Math.hypot(v.x, v.z), ko = this.ko > 0;
       this.root.position.set(pp.x, pp.y, pp.z); this.root.quaternion.copy(qP);
       const n = dt > 0.03 ? 3 : 1, hh = dt / n;
@@ -874,7 +888,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       // arms: two-bone aim toward the hand bodies, elbows out, down and back
       const f = this.face, right = V(-Math.cos(this.yaw), 0, Math.sin(this.yaw));
       for (let k = 0; k < 2; k++) {
-        const [up, fo, ha] = this.armBones[k], hb = toV(this.hands[k].rb.translation(), _vT);
+        const [up, fo, ha] = this.armBones[k], hb = this.ipos(this.hands[k], alpha, _vT);
         up.getWorldPosition(_vS);
         if (!this.L1) { fo.getWorldPosition(_v1); ha.getWorldPosition(_v2); this.L1 = _vS.distanceTo(_v1); this.L2 = _v1.distanceTo(_v2) + 0.05 * K; }
         const L1 = this.L1, L2 = this.L2;
@@ -968,11 +982,11 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
     /** Call once per fixed physics step AFTER world.step(eventQueue). */
     afterStep(dt, eventQueue) {
       drainImpacts(dt, eventQueue);
-      for (const p of players) p.postStep(dt);
+      for (const p of players) { p.postStep(dt); if (!p.dead) p.snapshot(); }
       simTime += dt;
     },
     /** Call once per rendered frame: bones, juice. */
-    render(dt) { for (const p of players) p.render(dt); tickPuffs(dt); },
+    render(dt, alpha = 1) { for (const p of players) p.render(dt, alpha); tickPuffs(dt); },
     /** Bounding box of the players worth framing (conscious ones first) for a shared camera. */
     getFocus() {
       const alive = players.filter(p => !p.dead), live = alive.filter(p => p.ko <= 0), use = live.length ? live : alive;
