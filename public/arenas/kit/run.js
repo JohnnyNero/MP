@@ -380,7 +380,9 @@ export async function runArena(arena) {
       else if (round.phase === 'results') benchShow();
     }
     if (!paused && !hud.helpOn) {
-      acc += Math.min(0.1, ms / 1000); let n = 0;
+      // a 60 Hz display delivers frames a little early or late; treat near-16.7 ms frames as exactly one physics step,
+      // otherwise jitter gives 0-then-2 steps per frame and everything visibly hitches
+      acc += Math.min(0.1, (Math.abs(ms - 1000 * DT) < 2.5 ? 1000 * DT : ms) / 1000); let n = 0;
       const t0 = performance.now();
       while (acc >= DT && n < 3) { tick(DT, ms); acc -= DT; n++; }
       if (n) tickMs = tickMs * 0.9 + 0.1 * (performance.now() - t0) / n;

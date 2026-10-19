@@ -128,9 +128,13 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
     for (const clip of models.blob.animations) acts[clip.name] = mixer.clipAction(clip);
     acts.idle.play();
     const bone = n => model.getObjectByName(n) || model.getObjectByName(n.replace(/[.\[\]:\/]/g, ''));
+    // each arm bone's rest roll (its +Z axis in the character frame), so posing never depends on the animated pose
+    root.updateMatrixWorld(true);
+    const restZ = n => { const b = bone(n); return b ? V(0, 0, 1).applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion())) : V(0, 0, 1); };
+    const armRestZ = [['upperarm.L', 'forearm.L'], ['upperarm.R', 'forearm.R']].map(ns => ns.map(restZ));
     const key = bone('windkey');
     return { root, leanG, squashG, model, mixer, acts, anim: 'idle', headBone: bone('head'), spineBone: bone('spine'),
-             armBones: [[bone('upperarm.L'), bone('forearm.L'), bone('hand.L')], [bone('upperarm.R'), bone('forearm.R'), bone('hand.R')]],
+             armBones: [[bone('upperarm.L'), bone('forearm.L'), bone('hand.L')], [bone('upperarm.R'), bone('forearm.R'), bone('hand.R')]], armRestZ, armPole: [null, null], armElbow: [null, null], armZ: [null, null], armHand: [null, null],
              key, keyRest: key ? key.quaternion.clone() : null, blade: HATS[i % HATS.length] === 'acc_propeller' ? blade : null };
   }
 
@@ -143,6 +147,17 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
     _q2.copy(_q1).invert().multiply(qWorld).multiply(_q1);
     bone.quaternion.premultiply(_q2);
     bone.updateMatrixWorld(true);
+  }
+  // pose a bone so its +Y points at a world point and its +Z stays as close as possible to refZ (a fully defined
+  // orientation: no shortest-arc spin from whatever the animation left, which flipped arms near 180 degrees)
+  const _m = new THREE.Matrix4(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _qw = new THREE.Quaternion();
+  function poseBone(bone, target, refZ) {
+    bone.getWorldPosition(_v1);
+    _by.copy(target).sub(_v1); if (_by.lengthSq() < 1e-10) return; _by.normalize();
+    _bz.copy(refZ).addScaledVector(_by, -refZ.dot(_by)); if (_bz.lengthSq() < 1e-6) return; _bz.normalize();
+    _bx.crossVectors(_by, _bz);
+    _qw.setFromRotationMatrix(_m.makeBasis(_bx, _by, _bz));
+    bone.parent.getWorldQuaternion(_q1); bone.quaternion.copy(_q1.invert().multiply(_qw)); bone.updateMatrixWorld(true);
   }
   function aimBone(bone, target) {
     bone.getWorldPosition(_v1);
@@ -826,7 +841,8 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
     setAnim(name, fade = 0.15) {
       if (this.anim === name) return;
       const prev = this.acts[this.anim], next = this.acts[name];
-      next.reset().setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(fade).play();
+      if (!next.isRunning() || next.getEffectiveWeight() < 0.05) next.reset();   // a clip still fading out resumes where it is
+      next.setEffectiveTimeScale(1).setEffectiveWeight(1).fadeIn(fade).play();
       prev.fadeOut(fade);
       this.anim = name;
     }
@@ -840,10 +856,11 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       for (let k = 0; k < n; k++) { this.sqV += (-170 * this.sq - 11 * this.sqV) * hh; this.sq += this.sqV * hh; }
       const sq = clamp(this.sq, -0.25, 0.3);
       this.squashG.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
-      const air = !this.grounded && this.airT > 0.1;
+      // hysteresis so the clip doesn't flicker (and restart) when speed or ground contact hovers at a threshold
+      const air = !this.grounded && this.airT > (this.anim === 'jump' ? 0.05 : 0.2);
       if (ko || this.limp) this.setAnim('tumble', 0.1);
-      else if (air || this.hanging) this.setAnim('jump', 0.12);
-      else if (speed > 0.6) this.setAnim('run', 0.12);
+      else if (air || this.hanging) this.setAnim('jump', 0.15);
+      else if (speed > (this.anim === 'run' ? 0.35 : 0.9)) this.setAnim('run', 0.15);
       else this.setAnim('idle', 0.25);
       if (this.anim === 'run') {                 // cadence follows ground speed (relative to a moving deck), kept calm
         const gs = Math.hypot(v.x - this.gv.x, v.z - this.gv.z);
@@ -861,22 +878,41 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         up.getWorldPosition(_vS);
         if (!this.L1) { fo.getWorldPosition(_v1); ha.getWorldPosition(_v2); this.L1 = _vS.distanceTo(_v1); this.L2 = _v1.distanceTo(_v2) + 0.05 * K; }
         const L1 = this.L1, L2 = this.L2;
-        const dvec = hb.clone().sub(_vS); let d = dvec.length(); if (d < 1e-4) continue;
+        // the arm aims at the hand eased relative to the shoulder (hides hand-body jitter; a grip stays within ~1 frame)
+        const ho = hb.clone().sub(_vS), hs = this.armHand[k] || (this.armHand[k] = ho.clone());
+        hs.lerp(ho, 1 - Math.exp(-dt * (this.hands[k].joint ? 40 : 24)));
+        const dvec = hs.clone(); let d = dvec.length(); if (d < 1e-4) continue;
         const dirn = dvec.divideScalar(d);
-        // a little stretch past full reach (up to 1.15x) so the mitten stays on the physics hand
-        const st = clamp(d / (L1 + L2 - 1e-3), 1, 1.15); up.scale.set(1, st, 1); ha.scale.set(1, 1 / st, 1);
-        d = clamp(d / st, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+        // soft reach: near full extension the bend angle is hypersensitive to distance (millimetres of hand jitter flicked
+        // the elbow), so the solved distance eases toward the limit and a little stretch (up to 1.15x) makes up the rest
+        const Lm = L1 + L2 - 1e-3, ds = 0.85 * Lm;
+        const dSoft = d > ds ? ds + (Lm - ds) * (1 - Math.exp(-(d - ds) / (Lm - ds))) : d;
+        const st = clamp(d / dSoft, 1, 1.15); up.scale.set(1, st, 1); ha.scale.set(1, 1 / st, 1);
+        d = clamp(dSoft, Math.abs(L1 - L2) + 1e-3, Lm);
         const cosA = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
-        const pole = V(0, -0.6, 0).addScaledVector(f, -0.4).addScaledVector(right, -this.hands[k].side * 0.7);
-        pole.addScaledVector(dirn, -pole.dot(dirn)); if (pole.lengthSq() < 1e-6) pole.set(0, -1, 0); pole.normalize();
+        // elbow direction: out, down and back, eased over time so it never jumps from one side to the other
+        const want = V(0, -0.6, 0).addScaledVector(f, -0.4).addScaledVector(right, -this.hands[k].side * 0.7).normalize();
+        const pl = this.armPole[k] || (this.armPole[k] = want.clone()); pl.lerp(want, 1 - Math.exp(-dt * 10)).normalize();
+        const pole = pl.clone().addScaledVector(dirn, -pl.dot(dirn));
+        if (pole.lengthSq() < 1e-4) pole.copy(want).addScaledVector(dirn, -want.dot(dirn));
+        if (pole.lengthSq() < 1e-6) pole.set(0, -1, 0); pole.normalize();
         _vE.copy(_vS).addScaledVector(dirn, cosA * L1 * st).addScaledVector(pole, sinA * L1 * st);
         const e2 = _vE.clone();
         if (this.outside(e2)) {                  // the elbow would sit inside the bean: swing it out around the shoulder-hand line
           e2.sub(_vS).addScaledVector(dirn, -e2.dot(dirn));
           if (e2.lengthSq() > 1e-8) { e2.normalize(); _vE.copy(_vS).addScaledVector(dirn, cosA * L1 * st).addScaledVector(e2, sinA * L1 * st); }
         }
+        // ease the elbow (relative to the shoulder, so it never trails a moving body) to hide physics jitter
+        const eo = _vE.clone().sub(_vS), es = this.armElbow[k] || (this.armElbow[k] = eo.clone());
+        es.lerp(eo, 1 - Math.exp(-dt * 22)); _vE.copy(_vS).add(es);
         _vP.copy(_vS).addScaledVector(dirn, d * st);
-        aimBone(up, _vE); aimBone(fo, _vP);
+        // twist: carry last frame's roll forward, nudged toward the rest roll (any fixed reference degenerates when
+        // the arm points along it, e.g. reaching straight ahead)
+        const [rzU, rzF] = this.armRestZ[k], pz = this.armZ[k] || (this.armZ[k] = [rzU.clone().applyQuaternion(qC), rzF.clone().applyQuaternion(qC)]);
+        pz[0].lerp(rzU.clone().applyQuaternion(qC), 0.12).normalize(); poseBone(up, _vE, pz[0]);
+        pz[0].set(0, 0, 1).applyQuaternion(up.getWorldQuaternion(_q3));
+        pz[1].copy(pz[0]).lerp(rzF.clone().applyQuaternion(qC), 0.12).normalize(); poseBone(fo, _vP, pz[1]);
+        pz[1].set(0, 0, 1).applyQuaternion(fo.getWorldQuaternion(_q3));
       }
       if (this.key) { this.keyA += dt * (ko ? 1 : 2.5 + speed * 3.5 + (air ? 6 : 0)); this.key.quaternion.copy(this.keyRest).multiply(_q1.setFromAxisAngle(ZAXIS, this.keyA)); }
       if (this.blade) this.blade.rotation.y += dt * (air ? 30 : 6 + speed * 2);
