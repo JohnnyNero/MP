@@ -73,11 +73,12 @@ export const BOUNDS = { x0: -9.5, x1: 9.5, z0: -7.5, z1: 8 };
 export const inBounds = (x, z) => x >= BOUNDS.x0 && x <= BOUNDS.x1 && z >= BOUNDS.z0 && z <= BOUNDS.z1;
 export const isDry = (x, z) => heightAt(x, z) > WATER_Y + 0.12;
 
-// distance to a drop the bots should respect: the waterline, and the rims of the fort, the castle and the bridge
+// distance to a drop the bots should respect: the sea's edge (the lagoon is shallow enough to hop across on the
+// stones), and the rims of the fort, the castle and the bridge
 const STEP = 0.25, GX0 = BOUNDS.x0, GZ0 = BOUNDS.z0, GW = Math.round((BOUNDS.x1 - BOUNDS.x0) / STEP) + 1, GH = Math.round((BOUNDS.z1 - BOUNDS.z0) / STEP) + 1;
-const COAST = (() => {           // chamfer distance transform from every wet cell
+const COAST = (() => {           // chamfer distance transform from every sea cell
   const d = new Float32Array(GW * GH);
-  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) d[j * GW + i] = isDry(GX0 + i * STEP, GZ0 + j * STEP) ? 1e6 : 0;
+  for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) { const x = GX0 + i * STEP, z = GZ0 + j * STEP; d[j * GW + i] = isDry(x, z) || lagoonR(x, z) < 1.2 ? 1e6 : 0; }
   const a = STEP, b = STEP * Math.SQRT2;
   for (let j = 0; j < GH; j++) for (let i = 0; i < GW; i++) { const k = j * GW + i; let v = d[k]; if (i) v = Math.min(v, d[k - 1] + a); if (j) { v = Math.min(v, d[k - GW] + a); if (i) v = Math.min(v, d[k - GW - 1] + b); if (i < GW - 1) v = Math.min(v, d[k - GW + 1] + b); } d[k] = v; }
   for (let j = GH - 1; j >= 0; j--) for (let i = GW - 1; i >= 0; i--) { const k = j * GW + i; let v = d[k]; if (i < GW - 1) v = Math.min(v, d[k + 1] + a); if (j < GH - 1) { v = Math.min(v, d[k + GW] + a); if (i < GW - 1) v = Math.min(v, d[k + GW + 1] + b); if (i) v = Math.min(v, d[k + GW - 1] + b); } d[k] = v; }
@@ -133,11 +134,16 @@ export const LEDGES = [
   [FORT.x0, FORT.y, FORT.z1, FORT_RAMP.x0, FORT.y, FORT.z1], [FORT.x0, FORT.y, FORT.z0, FORT.x0, FORT.y, BRIDGE.z0], [FORT.x0, FORT.y, BRIDGE.z1, FORT.x0, FORT.y, FORT.z1],
   [PIER.x0, PIER.y, PIER.z0, PIER.x0, PIER.y, PIER.z1], [PIER.x1, PIER.y, PIER.z0, PIER.x1, PIER.y, PIER.z1],
 ];
-// ship ledges are ship-local (they move with it)
-export const SHIP_LEDGES = [
-  [SHIP.castle.x1, SHIP.castle.y1, -0.2, SHIP.castle.x1, SHIP.castle.y1, SHIP.castle.z1],
-  [SHIP.hull.x0, SHIP.hull.y1, SHIP.hull.z1, SHIP.plank.x0, SHIP.hull.y1, SHIP.hull.z1], [SHIP.plank.x1, SHIP.hull.y1, SHIP.hull.z1, SHIP.hull.x1, SHIP.hull.y1, SHIP.hull.z1],
-];
+// ship ledges are ship-local (they move with it): every deck edge and the castle's, so you can climb back aboard
+export const SHIP_LEDGES = (() => {
+  const H = SHIP.hull, C = SHIP.castle, P = SHIP.plank;
+  return [
+    [C.x1, C.y1, -0.2, C.x1, C.y1, C.z1],                                          // castle face toward the deck
+    [H.x0 + (C.x1 - C.x0), H.y1, H.z1, P.x0, H.y1, H.z1], [P.x1, H.y1, H.z1, H.x1, H.y1, H.z1],   // deck front (either side of the plank)
+    [C.x1, H.y1, H.z0, H.x1, H.y1, H.z0], [H.x1, H.y1, H.z0, H.x1, H.y1, H.z1],       // deck back, bow end
+    [C.x0, C.y1, C.z0, C.x1, C.y1, C.z0], [C.x0, C.y1, C.z1, C.x1, C.y1, C.z1], [C.x0, C.y1, C.z0, C.x0, C.y1, C.z1],   // castle back, front, stern
+  ];
+})();
 
 // walkable points (bots, hazards): a 0.6 m grid over the dry island and the structures, tagged
 export const POINTS = (() => {

@@ -1,10 +1,11 @@
 # CLAUDE.md
 
 TABLETOP: a local 2–4 player competitive party game in the browser, played on a Steam Deck docked to a TV
-(1920x1080, gamepad first, keyboard for two). Wobbly active-ragdoll beans walk a physical 3D board on a tabletop:
-roll a real die, walk your spaces while everyone shoves and grabs, and where you stand when time is up is where you
-land. Games (king of the hill, later more) happen on the board itself. The earlier disaster arenas stay playable and
-may come back as minigames. Design: `docs/design-proposal.md` (section 12f is the current direction, 12e the arenas). Movement spec:
+(1920x1080, gamepad first, keyboard for two). Wobbly active-ragdoll beans play a board game inside a real place
+(the first map is Pirate Cove): roll a real die, walk your spaces while everyone shoves and grabs, and where you stand
+when time is up is where you land. After every turn a Mario Party-style minigame is called and played right where
+everyone stands (flood, cannon fire, king of the hill, ...), then the world resets. The earlier disaster arenas stay
+playable. Design: `docs/design-proposal.md` (section 12g is the current direction). Movement spec:
 `docs/hff-cleanroom-analysis.md`. Hazard timing spec: `docs/hazard-cleanroom-analysis.md`.
 
 ## Layout
@@ -14,13 +15,15 @@ may come back as minigames. Design: `docs/design-proposal.md` (section 12f is th
   - `kit/`: the shared runtime: `engine.js` (world, players, physics step, camera, render loop) runs a mode; `run.js`
     is the disaster-round mode for arenas. Also match, input, HUD, effects and sound, bots, hazards, the ragdoll
     character, destruction. Read `kit/KIT.md` before changing it.
-  - `board/` + `board.html`: the board game (`layout.js` shape and space graph, `rules.js` pure rules, `board.js`
-    the place, `mode.js` the turn loop).
+  - `board/`: the board game for any map: `mode.js` (the turn loop), `rules.js` (pure rules), `minigames/` (one module
+    each), `markers.js`, `route.js`. Also the first test map, the Playset (`layout.js`, `board.js`, `board.html`).
+  - `cove/` + `cove.html`: Pirate Cove, the first real map (`layout.js` shape and spaces, `cove.js` physics and the
+    floating wreck, `art.js` the look).
   - `<arena>/` (`kitchen`, `ship`, `station`) + `<arena>.html`: one arena each (`arena.js`, `layout.js`, baked pieces).
-  - `index.html`: the menu (the board, match, single arenas, Deck benchmark).
+  - `index.html`: the menu (Pirate Cove, the Playset, the arena match, single arenas, Deck benchmark).
 - `tools/`: everything that generates files under `public/arenas/`, plus headless probes. See `tools/README.md`.
   - `bake/` (destruction pieces), `character/` (Blender bean pipeline + embed), `probes/` (bot rounds via Playwright).
-- `tests/`: Vitest. `board.test.js` covers the board rules and layout, `arenas.test.js` match scoring and arena
+- `tests/`: Vitest. `board.test.js` covers the board rules, minigame scoring and both maps' layouts, `arenas.test.js` match scoring and arena
   layouts; the `.ts` tests cover the parked engine.
 - `src/` + `legacy.html`: the earlier 2D Phaser board game, **parked**. Don't extend it.
 - Root `index.html` only redirects to `./arenas/`.
@@ -31,7 +34,7 @@ may come back as minigames. Design: `docs/design-proposal.md` (section 12f is th
 - `npm test`: unit tests (fast, run before every push)
 - `npm run typecheck`
 - `npm run build`: production build into `dist/` (relative base, works on Pages)
-- `python3 -m http.server -d public 4180` then `node tools/probes/board.mjs` (the board) or `soak.mjs`
+- `python3 -m http.server -d public 4180` then `node tools/probes/board.mjs 1,2 6 cove` (a map) or `soak.mjs`
   (`disasters.mjs`, `arms.mjs`, `match.mjs`, `camera.mjs`) for the arenas: play real games headless with bots.
   `smoke.mjs` is what CI runs against `dist/`.
 

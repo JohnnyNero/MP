@@ -188,11 +188,14 @@ export async function createEngine(arena, { allBots = false, persistSlots = fals
     arena.onDestructEvent?.(type, e, ctx);
   }
 
-  // ---------------------------------------------------------------- ledges (arena.ledges: [[x0, y0, z0, x1, y1, z1]] local) -> world
+  // ---------------------------------------------------------------- ledges (arena.ledges: [[x0, y0, z0, x1, y1, z1]] local, or { a, b, body } world) -> world
   const ledgeOut = []; const _la = new THREE.Vector3(), _lb = new THREE.Vector3();
   function worldLedges() {
     const body = arena.ledgeBody?.(ctx) || null; ledgeOut.length = 0;
-    for (const s of arena.ledges) { frame.toWorld(s[0], s[1], s[2], _la); frame.toWorld(s[3], s[4], s[5], _lb); ledgeOut.push({ a: [_la.x, _la.y, _la.z], b: [_lb.x, _lb.y, _lb.z], body }); }
+    for (const s of arena.ledges) {
+      if (!Array.isArray(s)) { ledgeOut.push(s); continue; }              // a ready { a, b, body } (world, on a body of its own)
+      frame.toWorld(s[0], s[1], s[2], _la); frame.toWorld(s[3], s[4], s[5], _lb); ledgeOut.push({ a: [_la.x, _la.y, _la.z], b: [_lb.x, _lb.y, _lb.z], body });
+    }
     return ledgeOut;
   }
 

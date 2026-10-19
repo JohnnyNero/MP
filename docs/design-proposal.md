@@ -355,6 +355,35 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 ---
 
+## 12g. Maps are places; minigames happen in them (decided, Pirate Cove built)
+
+Builds on 12f.
+
+- **The place comes first.** A map is a fun place to be in, and the board is threaded through it. Spaces are things
+  that belong there: shell inlays in the sand, painted stepping stones, bridge planks, a hatch on a ship's deck.
+- **Landmarks do jobs.** Each one is a shortcut, a high road, a hill, or a way back up when you fall.
+- **Pirate Cove** (`public/arenas/cove/`), an island around a lagoon:
+  - the ring of spaces is on the sand;
+  - the stepping stones across the lagoon are the shortcut;
+  - the high road goes up the cliff fort, over the plank bridge and onto the beached wreck, with treasure-chest
+    spaces (+6);
+  - the wreck's stern deck is the hill.
+- **Minigames after every turn.** One is called by name ("FLOOD!") with a 3 s warning, and everyone reacts from
+  wherever they stand.
+  - Placements pay 6 / 3 / 1 coins.
+  - Afterwards the world resets: broken things are whole again and everyone is back on their space.
+  - Minigames are modules (`board/minigames/`). A map lists the ones it supports and can reskin them.
+- **The first three:**
+  - **Flood!** The sea rises over the island and the wreck floats free. Waves roll over it; climb back aboard if
+    you're washed off. In the water for 3 s and you're out.
+  - **Cannon Fire!** Balls lobbed from a ship offshore, every landing spot shown first. A hit is out.
+  - **Captain's Deck:** king of the hill on the wreck's stern.
+- **Water between games.** Fall in the lagoon or the sea and you wash back to your space, minus 3 coins.
+- **Measured with four bots** (`tools/probes/board.mjs`): beans about 105 px tall at 1080p, six turns in about
+  4 minutes.
+- **Next minigames, in the same vein:** barrel roll, treasure grab (coins scatter, grab the most), capture the flag
+  between the wreck and the fort, a hot potato with a lit bomb.
+
 ## 12f. Direction change: a physical board you walk (decided, grey-box built)
 
 Supersedes 12e as the main game. The arenas stay playable and may return as minigames.

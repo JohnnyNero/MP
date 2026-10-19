@@ -1,23 +1,31 @@
 # TABLETOP
 
 A local 2–4 player party game for the browser, built for a Steam Deck docked to a TV. Wobbly bean characters
-grab, throw, hang and climb across a physical 3D board game on a tabletop. Roll, walk, shove, grab the star.
+grab, throw, hang and climb through a board game set in a real place, with a Mario Party-style minigame after
+every turn.
 
 **Play:** https://johnnynero.github.io/MP/ (deployed by GitHub Actions; the menu is at `/arenas/`)
 
-## The Board (new)
+## Pirate Cove (the board game)
 
-1. **Roll:** a die hovers over your head. Jump to hit it. It tumbles for real, and if it falls off the table it
-   counts as a 1.
+A board game played inside a pirate island: walk your spaces around the lagoon, across the stepping stones, or over
+the fort and the bridge onto the shipwreck.
+
+1. **Roll:** a die hovers over your head. Jump to hit it. It tumbles for real; if it splashes into the sea it counts
+   as a 1.
 2. **Walk:** your coloured pegs light up the spaces you can reach, and an arrow marks where your roll ends.
    Everyone walks at once for 8 seconds.
-3. **Land:** where you are standing when time is up is where you land. Blue +3 coins, red −3. Stop on the star
-   with 10 coins to buy it. Shove, grab and throw the others off their spaces.
-4. **King of the Hill** every third turn: stay on top of the tower to score coins.
-5. The red bridge in the middle is a risky shortcut. Fall off the table and you lose 3 coins and go back to your
-   space.
+3. **Land:** where you are standing when time is up is where you land. Blue +3 coins, red −3, a treasure chest +6.
+   Stop on the star with 10 coins to buy it.
+4. **Minigame:** after every turn one is called, and you react from wherever you stand. 1st / 2nd / 3rd earn
+   6 / 3 / 1 coins.
+   - **Flood!** Get aboard the wreck before the sea takes the island, then survive the waves.
+   - **Cannon Fire!** Dodge the shadows; a hit is out.
+   - **Captain's Deck:** stay on the wreck's stern deck.
+5. Fall in the water and you wash back to your space, minus 3 coins.
 
-Most stars after the last turn wins, then coins. `?turns=N` sets the length (default 10, about 4 minutes).
+Most stars after the last turn wins, then coins. `?turns=N` sets the length (default 10), `?game=flood` always
+plays one minigame. **The Playset** is the first test board (a tabletop), kept for practice.
 
 ## The disaster arenas
 
@@ -59,7 +67,7 @@ npm run typecheck
 npm run build      # dist/ (relative base, works on Pages)
 ```
 
-- **The game:** `public/arenas/` is plain ES modules with no build step: Three.js and Rapier from a CDN importmap. `kit/` is the shared runtime (`engine.js` runs a mode: the board or the disaster round); `board/` is the board game; each arena is a folder plus a page. See `public/arenas/kit/KIT.md`.
+- **The game:** `public/arenas/` is plain ES modules with no build step: Three.js and Rapier from a CDN importmap. `kit/` is the shared runtime (`engine.js` runs a mode: the board or the disaster round); `board/` is the board game and its minigames, `cove/` the Pirate Cove map; each arena is a folder plus a page. See `public/arenas/kit/KIT.md`.
 - **Tools:** `tools/` (destruction bake, Blender character pipeline, headless bot probes). See `tools/README.md`.
 - **CI:** one job runs typecheck, unit tests, build, a headless arena smoke test (`tools/probes/smoke.mjs`), then deploy.
 - **Parked:** `src/` and `legacy.html` are the earlier 2D board game, kept for reference.
@@ -75,5 +83,6 @@ npm run build      # dist/ (relative base, works on Pages)
 | `?bench=1` | Benchmark round (also on the menu) |
 | `?shake=off` | No camera shake |
 | `?turns=N` | Board: game length in turns |
+| `?game=flood` | Board: always this minigame (`games=0` for none) |
 
 Design docs live in `docs/`. Project conventions are in `CLAUDE.md`.

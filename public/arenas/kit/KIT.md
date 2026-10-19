@@ -19,7 +19,7 @@ Shared runtime for arenas and the board: the engine, the round loop, shared came
 ## Engine and modes
 
 `engine.js` owns everything physical; a mode owns the rules. `run.js` is the disaster round; `../board/mode.js` is
-the board game. A mode is an object of hooks (see the header of `engine.js`): `tick(dt)`, `input(edges)`,
+the board game (its minigames reuse the hazards here). A mode is an object of hooks (see the header of `engine.js`): `tick(dt)`, `input(edges)`,
 `playerState(p)` → `{ locked, invulnerable, bot }` (required), `botThink(p, dt, botCtx)`, `armed()`, `knocks()`,
 `onFall(p)` (default: out; the board puts you back on your space), `onOut`, `view(dt)` (frame the camera, set the
 timer), `cutaway()`, `chips()`, `postStep(dt)`, `interpTargets()`, `onFrame`, `lockQuality`. Start with
@@ -41,7 +41,7 @@ The page links `../kit/hud.css`, includes the importmap, and runs `runArena(aren
 - `hazardConfig[name]`: per-disaster skin and tuning (titles, lanes, food meshes, flood axis). See each hazard's header.
 - `init(ctx)` runs once (visuals). `build(ctx)` runs each round on a fresh `ctx.world`/`ctx.D`. Then `update(dt, ctx)` (pre-physics), `postStep`, and `render` (per frame).
 - Optional hooks: `onEscalate`, `onPhase`, `state(ctx)` (feeds `__round.arenaState`), `hooks(ctx, window)`.
-- `ledges` (optional): `[[x0, y0, z0, x1, y1, z1], ...]` local segments, any direction, that grabs snap onto (counter edges, deck lips). Players hang off them and climb back. `ledgeBody(ctx)` returns the body they ride on (a moving arena's kinematic hull).
+- `ledges` (optional): `[[x0, y0, z0, x1, y1, z1], ...]` local segments, any direction, that grabs snap onto (counter edges, deck lips). Players hang off them and climb back. `ledgeBody(ctx)` returns the body they ride on (a moving arena's kinematic hull). An entry may instead be a ready `{ a, b, body }` in world coordinates on a body of its own (the cove's floating wreck); `ledges` may be a getter, read every step.
 - `props` (optional): loose grabbable things `{ name, shape: 'sphere'|'box'|'cyl', size, mass, pos, mesh(THREE) }`. Destruction debris up to `grabMaxMass` is grabbable too.
 - `secondDisaster` (optional): the disaster that always joins at the first escalation (unless it is already the main one).
 - `hitBias(p, impulse, src, ctx)` (optional): adjust every hazard knock before it lands (the station tilts knocks toward its open door). Return the new impulse.

@@ -14,7 +14,7 @@ for (const arena of Object.keys(ARENAS)) {
   failed ||= !ok; await A.close();
 }
 // the boards: a turn and a minigame each, with four bots
-for (const map of ['board']) {
+for (const map of ['cove', 'board']) {
   const t0 = Date.now(); let A;
   try { A = await openArena(map, '&turns=2'); } catch (e) { console.log(`${map}: FAILED TO LOAD ${e.message}`); failed = true; continue; }
   const r = await A.page.evaluate(() => { const seen = new Set(); for (let k = 0; k < 120; k++) { window.__skip(0.5); seen.add(window.__round.phase); } const R = window.__round; return { phase: R.phase, turn: R.turn, coins: R.coins, phases: [...seen] }; });
