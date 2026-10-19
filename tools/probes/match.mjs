@@ -13,6 +13,7 @@ for (;;) {
   const r = await page.evaluate(() => {
     window.__render(false); for (let i = 0; i < 4; i++) window.__inject(i, null);
     for (let k = 0; k < 900 && window.__ctx.round?.phase !== 'results'; k++) window.__skip(0.1);
+    window.__skip(2);                                // the results card appears after the winners' close-up
     const m = window.__match;
     return { arena: window.__round.arena, tag: document.getElementById('tag')?.textContent, h1: document.querySelector('#results h1')?.textContent, standings: document.querySelector('#results .mrow')?.textContent, button: document.getElementById('again')?.textContent, i: m?.i, points: m?.points };
   });

@@ -48,6 +48,8 @@ python3 -m http.server -d public 4180 &
 node tools/probes/soak.mjs [arena,...] [rounds]        # random rounds, fails on any page error
 node tools/probes/disasters.mjs [arena,...] [rounds]   # eliminations per disaster per arena
 node tools/probes/arms.mjs [arena]                     # arm snap count (stutter check)
+node tools/probes/camera.mjs [arena,...] [seconds]     # camera: jitter, players cut off, telegraphs off screen, bean size
+node tools/probes/match.mjs                            # a full match from the menu
 ```
 
 Env: `ARENAS_URL` (default `http://localhost:4180/arenas/`), `PLAYWRIGHT_MODULE` (path to playwright if it isn't

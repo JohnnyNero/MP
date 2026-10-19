@@ -61,7 +61,7 @@ export async function runArena(arena) {
   let R = streams(seed);
   const fxRng = () => R.fx();
   const fx = createFX({ THREE, scene, rng: fxRng });
-  const cam = createSharedCamera({ THREE, camera, ...(arena.camera || {}) });
+  const cam = createSharedCamera({ THREE, camera, ...(arena.camera || {}), ...(Q.get('shake') === 'off' ? { maxShake: 0 } : {}) });   // ?shake=off for anyone who gets queasy
   const cutaway = createCutaway({ THREE, camera, ...(arena.cutaway || {}) });
   const input = createInput({ nSlots: N_SLOTS, allBots: ALL_BOTS, onClaim: () => refreshChips(), persistKey: MATCH ? 'tabletop.slots' : null });
 
@@ -170,8 +170,12 @@ export async function runArena(arena) {
       match = { label: roundLabel(MATCH), final: !next, nextName: next ? MATCH.names[next] || next : '', table: standings(MATCH) };
       window.__match = MATCH;
     }
-    hud.showResults(res, { colors: COLORS, isHuman: (i) => input.isHuman(i), match }); fx.sfx('fanfare'); arena.onResults?.(res, ctx);
+    // the card waits a moment so the camera's close-up on the survivors is seen first (A / Enter shows it at once)
+    pendingResults = { res, opts: { colors: COLORS, isHuman: (i) => input.isHuman(i), match } };
+    fx.sfx('fanfare'); arena.onResults?.(res, ctx);
   };
+  let pendingResults = null;
+  function showPendingResults() { if (!pendingResults) return false; hud.showResults(pendingResults.res, pendingResults.opts); pendingResults = null; return true; }
   // after a match round's results: on to the next arena, or back to the menu when the match is over
   function matchNext() {
     const url = advance(MATCH);
@@ -311,6 +315,8 @@ export async function runArena(arena) {
     const { edges } = input.poll();
     if (edges.length) fx.audioOn();                      // counts as a gesture only where the browser already trusts the site
     if (BENCH?.shown && (edges.some((e) => e.button === 0) || input.keyEdge.has('Enter'))) { BENCH.go(); return; }
+    if (ph === 'results' && (round.t >= 1.5 || edges.some((e) => e.button === 0) || ['Enter', 'Space', 'NumpadEnter'].some((c) => input.keyEdge.has(c))) && showPendingResults()) { input.endStep(); return; }
+    if (ph === 'results') for (const p of ctx.living()) if (p.bean && round.results?.survivors?.includes(p.index)) { const b = p.bean; b.yaw += Math.atan2(Math.sin(-b.yaw), Math.cos(-b.yaw)) * Math.min(1, dt * 4); }   // winners turn to the camera
     for (const e of edges) { if (e.button === 9) hud.toggleHelp(); if (e.button === 0 && ph === 'results') { playAgain(); return; } }
     if (input.keyEdge.has('KeyH')) hud.toggleHelp();
     if (ph === 'results' && ['Enter', 'Space', 'NumpadEnter'].some((c) => input.keyEdge.has(c))) { input.endStep(); playAgain(); return; }
@@ -352,6 +358,7 @@ export async function runArena(arena) {
 
   function playAgain(disaster) {
     if (round.phase !== 'results' && !disaster && round.phase !== 'boot') return;
+    pendingResults = null;
     if (MATCH && !disaster && round.phase === 'results') { matchNext(); return; }
     seed = nextSeed(seed);
     const pick = mulberry32(hash('pick:' + seed));
@@ -359,13 +366,35 @@ export async function runArena(arena) {
   }
   hud.onAgain(() => playAgain());
 
+  // what the shared camera frames: living players (one flying off the arena, not hanging on, counts for less so the
+  // shot doesn't chase them into the void) and every live telegraph (a warning off screen is an unfair hit)
+  const _fl = new THREE.Vector3(), _fp = [], dangerSeen = new WeakMap();
+  function framePoints() {
+    _fp.length = 0;
+    for (const p of ctx.living()) {
+      const l = frame.toLocal(p.position, _fl), on = !surf.inBounds || surf.inBounds(l.x, l.z);
+      _fp.push({ p: p.position, w: on || p.hanging ? 1 : 0.35 });
+    }
+    if (round.phase === 'active' || round.phase === 'finish') for (const d of ctx.dangers) {
+      if (d.kind !== 'circle') continue;
+      if (!dangerSeen.has(d)) dangerSeen.set(d, simT);
+      const y = Math.max(-1, Math.min(4, surf.heightAt ? surf.heightAt(d.x, d.z) : 0));
+      // soft (never at a player's expense) and eased in over half a second, so a new warning doesn't jerk the shot
+      _fp.push({ p: frame.toWorld(d.x, Number.isFinite(y) ? y : 0, d.z), w: Math.min(1, (simT - dangerSeen.get(d)) / 0.5), soft: true });
+    }
+    return _fp;
+  }
+
   // ---------------------------------------------------------------- per-frame visuals
   const _cp = new THREE.Vector3();
   function updateView(dt) {
     const ph = round.phase;
     if (ph === 'pull') cam.reveal(0);
     else if (ph === 'reveal') cam.reveal(round.t / T.reveal);
-    else cam.frame(dt, ph === 'results' ? [] : ctx.living().map((p) => p.position));
+    else if (ph === 'results') {                     // celebration: close on the survivors (or the whole arena)
+      const win = (round.results?.survivors || []).map((i) => ctx.players[i]).filter((p) => p && !p.isOut).map((p) => p.position);
+      cam.frame(dt, win, { close: win.length > 0 });
+    } else cam.frame(dt, framePoints());
     cam.apply(dt);
     ctx.players.group?.render?.(dt);
     arena.render?.(dt, ctx);
@@ -447,6 +476,7 @@ export async function runArena(arena) {
   window.__pause = (on) => { paused = !!on; };
   window.__render = (on) => { noRender = !on; };
   window.__renderFrames = (n = 1, dt = 1 / 30) => { for (let i = 0; i < n; i++) updateView(dt); renderer.render(scene, camera); };
+  window.__view = (dt = 1 / 60) => { updateView(dt); camera.updateMatrixWorld(); };   // camera + visuals, no draw (probes)
   window.__overboard = (i) => { const p = ctx.players[i]; if (p && !p.isOut) { p.teleport(frame.toWorld(...(arena.overboard || [0, 0.5, 12]))); p.body?.setLinvel({ x: 0, y: -1, z: 2 }, true); } };
   window.__teleport = (i, x, y, z) => { const p = ctx.players[i]; if (p && !p.isOut) p.teleport(frame.toWorld(x, y, z)); };
   window.__hazards = () => ctx.hazards;

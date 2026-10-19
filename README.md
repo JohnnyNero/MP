@@ -58,5 +58,6 @@ npm run build      # dist/ (relative base, works on Pages)
 | `?seed=N` | Fixed seed |
 | `?quality=high` | Never lower quality automatically |
 | `?bench=1` | Benchmark round (also on the menu) |
+| `?shake=off` | No camera shake |
 
 Design docs live in `docs/`. Project conventions are in `CLAUDE.md`.

@@ -56,8 +56,8 @@ function makeClaw() {
   return g;
 }
 
-export const STATION_CAMERA = { pitchDeg: 35, fov: 36, minDist: 14.5, maxDist: 26, padX: 1.6, padZ: 1.6, padY: 0.8, center: [0, 0.4, 1.6], homeSize: [16, 1, 9],
-  centerPull: 0.25, lift: 0.1, zBias: 0.4, include: [[-3, -1.2, 7.0], [3, -1.2, 7.0]], revealFrom: 10, revealTo: 29, revealCenter: [0, 1.4, 0], revealLift: 0.6, yMin: -0.3 };
+export const STATION_CAMERA = { pitchDeg: 35, fov: 36, minDist: 12, maxDist: 26, padX: 1.4, padZ: 0.9, padY: 0.7, center: [0, 0.4, 1.6], homeSize: [16, 1, 9],
+  centerPull: 0.25, lift: 0.1, zBias: 0.4, include: [[-2, -0.4, 5.9], [2, -0.4, 5.9]], revealFrom: 10, revealTo: 29, revealCenter: [0, 1.4, 0], revealLift: 0.6, yMin: -0.3 };
 
 // ---------------------------------------------------------------- the arena module
 const state = { tracked: [], visuals: null, lift: null, liftT: 0, alarm: 'idle', alarmT: 0, brokenEver: new Set() };
