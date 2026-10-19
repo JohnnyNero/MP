@@ -15,6 +15,7 @@ import { createFX } from './fx.js';
 import { createBot } from './bots.js';
 import { HAZARDS } from './hazards/index.js';
 import { loadCharacter, loadHero } from './players.js';
+import { loadMatch, saveMatch, clearMatch, awardRound, standings, isFinal, roundLabel, advance } from './match.js';
 
 const DT = 1 / 60;
 export const COLORS = ['#ef5a4f', '#3f86e8', '#43b65a', '#f2b51c'];
@@ -37,6 +38,8 @@ export async function runArena(arena) {
   // Deck benchmark (?bench=1[&next=ship]): an all-bot round at locked full quality, then a frame-time report
   const BENCH = Q.get('bench') ? { frames: [], tick: [], phys: [], chr: [], shown: false, go: null } : null;
   const ALL_BOTS = Q.get('bots') === 'all' || !!BENCH;
+  // a match (?match=1, state in sessionStorage) only counts if this page is the round it expects
+  const MATCH = (() => { const m = Q.get('match') ? loadMatch() : null; return m && m.order[m.i] === arena.id ? m : null; })();
   const T = { ...DEFAULT_T, ...(arena.timing || {}) };
   const allowed = arena.disasters.filter((n) => HAZARDS[n]);
   const meta = (n) => ({ title: arena.hazardConfig?.[n]?.title ?? HAZARDS[n].title, hint: arena.hazardConfig?.[n]?.hint ?? HAZARDS[n].hint });
@@ -60,7 +63,7 @@ export async function runArena(arena) {
   const fx = createFX({ THREE, scene, rng: fxRng });
   const cam = createSharedCamera({ THREE, camera, ...(arena.camera || {}) });
   const cutaway = createCutaway({ THREE, camera, ...(arena.cutaway || {}) });
-  const input = createInput({ nSlots: N_SLOTS, allBots: ALL_BOTS, onClaim: () => refreshChips() });
+  const input = createInput({ nSlots: N_SLOTS, allBots: ALL_BOTS, onClaim: () => refreshChips(), persistKey: MATCH ? 'tabletop.slots' : null });
 
   // ---------------------------------------------------------------- assets
   const [hero, createPlayers] = await Promise.all([loadHero(GLTFLoader), loadCharacter(Q.get('character'))]);
@@ -97,6 +100,7 @@ export async function runArena(arena) {
     isImmune: (p) => (immunity.get(p.index) || 0) > simT,
     hitPlayer(p, imp, stun, immune = 1.5, src = '?') {
       if (p.isOut || p.invulnerable || ctx.isImmune(p)) return false;
+      if (arena.hitBias) imp = arena.hitBias(p, imp, src, ctx) || imp;         // e.g. tilt knocks toward the arena's danger edge
       p.lastHit = src + '@' + round.t.toFixed(1); p.knock(imp, { stun }); immunity.set(p.index, simT + immune); cam.shake(0.3);
       ctx.hits.push({ t: +simT.toFixed(2), i: p.index, src }); return true;
     },
@@ -144,7 +148,7 @@ export async function runArena(arena) {
       const s = fx.labelSprite(z.label || 'SAFE'); s.position.set((z.x0 + z.x1) / 2, z.y + 1.6, (z.z0 + z.z1) / 2); group.add(s); safeObjs.push(s);
     }
   }
-  function tag() { hud.tag(meta(round.disaster).title + (round.second ? ' + ' + meta(round.second).title : '') + `<small>${arena.name}</small>`); }
+  function tag() { hud.tag(meta(round.disaster).title + (round.second ? ' + ' + meta(round.second).title : '') + `<small>${arena.name}${MATCH ? ' · ' + roundLabel(MATCH) : ''}</small>`); }
   function refreshChips() { hud.chips(ctx.players.map((p) => ({ name: 'P' + (p.index + 1), color: p.color, out: p.isOut, human: input.isHuman(p.index) }))); }
   function onPhase(ph) {
     const M = meta(round.disaster);
@@ -157,7 +161,22 @@ export async function runArena(arena) {
     arena.onPhase?.(ph, ctx);
   }
   round.playersRef = () => ctx.players;
-  const resultsHook = (res) => { window.__results = res; hud.showResults(res, { colors: COLORS, isHuman: (i) => input.isHuman(i) }); fx.sfx('fanfare'); arena.onResults?.(res, ctx); };
+  const resultsHook = (res) => {
+    window.__results = res;
+    let match = null;
+    if (MATCH) {
+      awardRound(MATCH, res); saveMatch(MATCH);
+      const next = isFinal(MATCH) ? null : MATCH.order[MATCH.i + 1];
+      match = { label: roundLabel(MATCH), final: !next, nextName: next ? MATCH.names[next] || next : '', table: standings(MATCH) };
+      window.__match = MATCH;
+    }
+    hud.showResults(res, { colors: COLORS, isHuman: (i) => input.isHuman(i), match }); fx.sfx('fanfare'); arena.onResults?.(res, ctx);
+  };
+  // after a match round's results: on to the next arena, or back to the menu when the match is over
+  function matchNext() {
+    const url = advance(MATCH);
+    if (url) { saveMatch(MATCH); location.href = url; } else { clearMatch(); location.href = './index.html'; }
+  }
   // createRound fires on.results; wire it here (kept separate so arenas can wrap it)
   round.setPhase = ((orig) => (ph) => { orig(ph); if (ph === 'results') resultsHook(round.results); })(round.setPhase);
 
@@ -211,7 +230,7 @@ export async function runArena(arena) {
       ...(arena.characterOptions || {}),
     } });
     ctx.bots = ctx.players.map(() => createBot(R.bots, { mischief: ctx.players.group?.isRagdoll ? 1 : 0 }));   // grab games need a character that grabs
-    round.start({ disaster, seed, players: ctx.players, arena: arena.id, rng: R.round });
+    round.start({ disaster, seed, players: ctx.players, arena: arena.id, rng: R.round, preferSecond: arena.secondDisaster || null });
     cam.snap();
     refreshChips();
   }
@@ -333,6 +352,7 @@ export async function runArena(arena) {
 
   function playAgain(disaster) {
     if (round.phase !== 'results' && !disaster && round.phase !== 'boot') return;
+    if (MATCH && !disaster && round.phase === 'results') { matchNext(); return; }
     seed = nextSeed(seed);
     const pick = mulberry32(hash('pick:' + seed));
     buildRound(disaster || pickOther(allowed, round.disaster, pick));

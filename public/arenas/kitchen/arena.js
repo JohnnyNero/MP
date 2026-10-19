@@ -273,7 +273,7 @@ const arena = {
       title: 'FRUIT STAMPEDE', hint: 'Glowing lane = rolling fruit · step out of it',
       axis: 'x', lanes: L.STAMPEDE_LANES, span: [L.COUNTER.x0 - 0.2, L.COUNTER.x1 + 0.2],
       heightAt: (x, z) => Math.max(0, L.heightAt(x, z)), makeRunner: makeFruit,
-      knockSide: () => -1,   // throw hit players toward the back wall, never toward the open front edge
+      knockSide: (c, pc) => (c > 2.5 && pc > c ? 1 : -1),   // only someone already on the edge side of the front lane goes over
     },
     stomp: {
       title: 'GIANT STOMP', hint: 'Get out of the growing hand shadow · jump the shockwave', radius: 1.8, skinColor: '#f0b08a',

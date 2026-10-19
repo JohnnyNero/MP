@@ -67,3 +67,12 @@ kbd { font: 800 0.85em/1 ui-monospace, monospace; background: rgba(0,0,0,0.35); 
 #bench .brow { display: grid; gap: 0.3em; padding: 1.2vh 1.4vw; margin: 1vh 0; border-radius: 18px; background: rgba(255,255,255,0.07); }
 #bench .brow span, #bench .gpu { opacity: 0.75; font-size: 0.8em; }
 #bench .go { margin: 2vh 0 0; color: var(--accent); }
+#results .match:empty { display: none; }
+#results .match { margin-top: 2.4vh; padding-top: 1.8vh; border-top: 3px solid rgba(255,255,255,0.12); }
+#results .mh { font: 800 clamp(16px, 1.6vw, 30px)/1 system-ui, sans-serif; color: #fff3d4; margin-bottom: 1.4vh; text-align: center; }
+#results .mh small { color: var(--muted); font-weight: 700; margin-left: 0.6em; }
+#results .mrow { display: flex; gap: 1.2vw; justify-content: center; flex-wrap: wrap; }
+#results .mchip { display: flex; align-items: center; gap: 0.5em; padding: 0.9vh 1.2vw; border-radius: 16px; background: rgba(255,255,255,0.06); font: 800 clamp(16px, 1.6vw, 30px)/1 system-ui, sans-serif; color: #fff3d4; }
+#results .mchip b { font-size: 1.3em; margin-left: 0.2em; }
+#results .mchip small { color: var(--safe); font-size: 0.7em; min-width: 2em; }
+#results .mchip.lead { outline: 3px solid var(--accent); }

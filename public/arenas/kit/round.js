@@ -26,8 +26,8 @@ export function createRound({ T = DEFAULT_T, allowed, on = {} }) {
   };
   const fire = (k, ...a) => on[k]?.(...a);
   r.setPhase = (ph) => { r.phase = ph; r.t = 0; fire('phase', ph, r); if (ph === 'results') { r.results = r.computeResults(r.playersRef()); fire('results', r.results); } };
-  r.start = ({ disaster, seed, players, arena, rng }) => {
-    Object.assign(r, { disaster, seed, second: null, elims: [], results: null, level: 0, tActive: 0, step: 0, startedWith: players.length, primarySpawned: false, arena, rng });
+  r.start = ({ disaster, seed, players, arena, rng, preferSecond = null }) => {
+    Object.assign(r, { disaster, seed, second: null, elims: [], results: null, level: 0, tActive: 0, step: 0, startedWith: players.length, primarySpawned: false, arena, rng, preferSecond });
     r.playersRef = () => players;
     r.setPhase('pull');
   };
@@ -44,7 +44,7 @@ export function createRound({ T = DEFAULT_T, allowed, on = {} }) {
     } else if (ph === 'active') {
       r.tActive = r.t;
       if (!r.primarySpawned) { r.primarySpawned = true; fire('primary', r.disaster); }
-      if (r.level === 0 && r.t >= T.esc1) { r.level = 1; r.second = pickOther(r.allowed, r.disaster, r.rng); fire('escalate', 1, r); }
+      if (r.level === 0 && r.t >= T.esc1) { r.level = 1; r.second = r.preferSecond && r.preferSecond !== r.disaster ? r.preferSecond : pickOther(r.allowed, r.disaster, r.rng); fire('escalate', 1, r); }
       if (r.level === 1 && r.t >= T.esc2) { r.level = 2; fire('escalate', 2, r); }
       if (r.t >= T.active || alive === 0 || (r.startedWith >= 2 && alive <= 1)) r.setPhase('finish');
     } else if (ph === 'finish' && r.t >= T.finish) r.setPhase('results');

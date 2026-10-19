@@ -19,15 +19,19 @@ const PREVENT = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Sl
 const P2_JOIN = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Slash', 'Period'];
 const dz = (v, d) => (Math.abs(v) < d ? 0 : (v - Math.sign(v) * d) / (1 - d));
 
-export function createInput({ nSlots = 4, allBots = false, onClaim = null } = {}) {
+// persistKey (optional): remember which device owns which slot in sessionStorage (a match spans several pages)
+export function createInput({ nSlots = 4, allBots = false, onClaim = null, persistKey = null } = {}) {
   const keys = new Set(); const keyEdge = new Set(); const injected = [];
   addEventListener('keydown', (e) => { if (!keys.has(e.code)) keyEdge.add(e.code); keys.add(e.code); if (PREVENT.includes(e.code)) e.preventDefault(); });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
   const slotDev = Array.from({ length: 4 }, (_, i) => (i === 0 && !allBots ? { kb: 0, pad: null } : null));
+  if (persistKey) { try { const saved = JSON.parse(sessionStorage.getItem(persistKey) || 'null'); if (Array.isArray(saved)) saved.slice(0, 4).forEach((d, i) => { slotDev[i] = d; }); } catch { /* fresh slots */ } }
+  const persist = () => { if (persistKey) try { sessionStorage.setItem(persistKey, JSON.stringify(slotDev)); } catch { /* ignore */ } };
   const padPrev = {};
   let pads = [];
-  function claim(dev) {
+  function claim(dev) { const s = claimSlot(dev); if (s != null) persist(); return s; }
+  function claimSlot(dev) {
     // a new pad takes P1 if P1 has no pad yet (keyboard + first pad share P1), else the first CPU slot
     if (dev.pad != null && slotDev[0] && slotDev[0].pad == null && !allBots) { slotDev[0].pad = dev.pad; onClaim?.(0); return 0; }
     for (let i = 0; i < nSlots; i++) if (!slotDev[i]) { slotDev[i] = dev; onClaim?.(i); return i; }

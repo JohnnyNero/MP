@@ -10,7 +10,7 @@ export function createHUD({ title = 'Arena', helpHTML = '', wipeText = 'TABLETOP
   const banner = el('banner', 'ov', '<div class="big"></div><div class="sub"></div>');
   const chips = el('chips', 'ov');
   const wipeEl = el('wipe', 'ov', `<span>${wipeText}</span>`);
-  const results = el('results', 'ov', '<div class="card"><h1></h1><div class="rows"></div><button id="again" type="button">Play again <kbd>A</kbd> / <kbd>Enter</kbd></button></div>');
+  const results = el('results', 'ov', '<div class="card"><h1></h1><div class="rows"></div><div class="match"></div><button id="again" type="button">Play again <kbd>A</kbd> / <kbd>Enter</kbd></button></div>');
   const help = el('help', 'ov', `<div class="card"><h2>${title}</h2>${helpHTML}<p><kbd>H</kbd> / <kbd>Start</kbd> close</p></div>`);
   el('hint', 'ov', 'H / Start: help');
   const fpsEl = el('fps', 'ov');
@@ -28,9 +28,17 @@ export function createHUD({ title = 'Arena', helpHTML = '', wipeText = 'TABLETOP
     clearBanner() { banner.classList.remove('on'); bannerUntil = 0; },
     update(now) { if (now > bannerUntil) banner.classList.remove('on'); },
     chips(list) { chips.innerHTML = list.map((p) => `<div class="chip ${p.out ? 'out' : ''}" style="background:${p.color}">${p.name}<small>${p.out ? 'OUT' : p.human ? 'PLAYER' : 'CPU'}</small></div>`).join(''); },
-    showResults(res, { colors, isHuman }) {
+    // match (optional): { label, final, nextName, table: [{ i, pts, delta, rank }] } adds the running standings
+    showResults(res, { colors, isHuman, match = null }) {
       results.style.display = 'flex';
       results.querySelector('h1').textContent = res.draw ? 'DRAW!' : res.survivors.length === 1 ? `P${res.survivors[0] + 1} WINS!` : res.survivors.length ? `${res.survivors.length} SURVIVORS!` : `P${res.winners[0] + 1} LASTED LONGEST!`;
+      const mEl = results.querySelector('.match'), btn = results.querySelector('#again');
+      if (match) {
+        const top = match.table.filter((r) => r.rank === 1).map((r) => 'P' + (r.i + 1));
+        if (match.final) results.querySelector('h1').textContent = top.length === 1 ? `${top[0]} WINS THE MATCH!` : `${top.join(' & ')} SHARE THE MATCH!`;
+        mEl.innerHTML = `<div class="mh">${match.final ? 'Final standings' : 'Match standings'} <small>${match.label}</small></div><div class="mrow">${match.table.map((r) => `<span class="mchip ${r.rank === 1 ? 'lead' : ''}"><span class="dot" style="background:${colors[r.i]}"></span>P${r.i + 1}<b>${r.pts}</b><small>${r.delta ? '+' + r.delta : ''}</small></span>`).join('')}</div>`;
+        btn.innerHTML = match.final ? 'Back to menu <kbd>A</kbd> / <kbd>Enter</kbd>' : `Next: ${match.nextName} <kbd>A</kbd> / <kbd>Enter</kbd>`;
+      } else { mEl.innerHTML = ''; btn.innerHTML = 'Play again <kbd>A</kbd> / <kbd>Enter</kbd>'; }
       results.querySelector('.rows').innerHTML = res.placements.map((r) => `<div class="row ${r.place === 1 && !res.draw ? 'win' : ''}"><span class="pl">${res.draw ? '–' : ORD[r.place]}</span>
         <span class="nm"><span class="dot" style="background:${colors[r.i]}"></span>P${r.i + 1} <span class="st" style="margin-left:.4em">${isHuman(r.i) ? '' : 'CPU'}</span></span><span class="st">${r.status}</span></div>`).join('');
       results.querySelector('#again').focus();

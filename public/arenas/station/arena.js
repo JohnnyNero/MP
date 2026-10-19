@@ -207,8 +207,15 @@ const arena = {
     groundHeight: (x, z) => (L.inBay(x, z) ? L.heightAt(x, z) : -1e9),
   },
   overboard: [0, 0.6, 7.0],
+  // every knock is tilted toward the open door and a little stronger: the bay is big and only one side is open
+  hitBias(p, imp) {
+    const h = Math.hypot(imp.x, imp.z); if (h < 1e-3) return imp;
+    const dx = imp.x / h, dz = imp.z / h + 0.9, n = Math.hypot(dx, dz) || 1;
+    imp.x = dx / n * h * 1.15; imp.z = dz / n * h * 1.15; return imp;
+  },
   debrisKnock: { minSpeed: 5, minMass: 15, massRef: 160 },
   disasters: ['decompress', 'meteor', 'lightning', 'stampede', 'stomp'],
+  secondDisaster: 'decompress',   // the hull gives way late in every round: the air starts rushing out
   escalation: { sub1: 'The hull is giving way', big2: 'HOLD ON!', sub2: 'Everything is breaking loose' },
   botHints: {
     edgeDist: L.edgeDist,
@@ -226,18 +233,20 @@ const arena = {
     },
     meteor: {
       title: 'MICROMETEORS', hint: 'Rocks punch through the open roof · watch the glowing shadows',
-      filter: (pt) => pt[3] !== 'under' && !(pt[3] === 'rail' && pt[1] < L.CATWALK.z1), ringColor: '#ff7a2a',
+      filter: (pt) => pt[3] !== 'under' && pt[3] !== 'catwalk' && pt[1] > -2.2, ringColor: '#ff7a2a',   // the front two thirds
     },
     lightning: { title: 'POWER SURGE', hint: 'Sparks arc down from the cables · shelter under the catwalk', shelterTag: 'under' },
     stampede: {
       title: 'RUNAWAY CARGO', hint: 'Glowing lane = rolling canisters · step out of it',
       axis: 'x', lanes: L.CARGO_LANES, span: [L.BAY.x0 - 0.4, L.BAY.x1 + 0.4],
       heightAt: (x, z) => Math.max(0, L.heightAt(x, z)), makeRunner: makeCanister,
-      knockSide: () => -1,   // throw hit players toward the back, never out of the door
+      knockSide: () => 1,    // hit players are thrown toward the open door
+      levels: [{ gap: 4.2, lanes: 1, speed: 7.5, tele: 1.9, n: 3 }, { gap: 3.8, lanes: 2, speed: 9.0, tele: 1.7, n: 4 }, { gap: 3.4, lanes: 2, speed: 10.5, tele: 1.6, n: 4 }],
     },
     stomp: {
       title: 'LOADER ARM', hint: "Get out of the claw's shadow · jump the shockwave", radius: 1.8,
-      makeHand: () => makeClaw(), filter: (pt) => pt[3] !== 'under' && !(pt[3] === 'rail' && pt[1] < L.CATWALK.z1),
+      makeHand: () => makeClaw(), filter: (pt) => pt[3] !== 'under' && pt[1] > -2.6,
+      levels: [{ gap: 3.6, n: 1, tele: 1.9 }, { gap: 3.4, n: 2, tele: 1.7 }, { gap: 3.2, n: 2, tele: 1.6 }],   // a big bay: claws come sooner and in pairs
     },
   },
 
