@@ -355,6 +355,36 @@ v1 = one house, one board, 8 hazards, 6 goals, about 6 items, bots on.
 
 ---
 
+## 12f. Direction change: a physical board you walk (decided, grey-box built)
+
+Supersedes 12e as the main game. The arenas stay playable and may return as minigames.
+
+- **Core idea:** where your bean stands is where you are on the board. Board rules become things you do with
+  your hands: drag someone back, throw them off a bridge, stand on the star before time runs out.
+- **Camera limit:** one TV, one shared camera, no split screen, so the board stays about the kitchen's footprint
+  and folds upward instead of spreading out. It is a playset on a table, about 12.8 × 10 m, with a back terrace,
+  a tower and ramps. Measured with four bots at 1080p, beans are about 100 px tall (median), 85 px in the
+  worst tenth of frames.
+- **Turn:** everyone at once, no waiting.
+  1. Roll: a die hovers over each head; jump to hit it, and it tumbles for real.
+  2. Walk: 8 s, with your pegs on the spaces you can reach and an arrow on your roll's end.
+  3. Land: the nearest space you were allowed to reach, on your own level.
+- **Spaces:** blue +3, red −3, and the star for 10 coins (it moves after each purchase). The shortcut bridge is
+  narrow and red.
+- **Penalties:** falling off the table costs 3 coins and puts you back on your space.
+- **Games on the board:** every third turn, king of the hill on the tower (15 s; seconds on top, 8 / 4 coins).
+  Next: survive (a disaster on the board), capture the flag, races.
+- **Win:** most stars, then coins. Ten turns take about four minutes.
+- **Code:** `public/arenas/board/` on the shared engine (`kit/engine.js`), which now runs either mode. Rules are
+  pure and unit-tested (`board/rules.js`), and `tools/probes/board.mjs` plays whole games headless.
+- **Next ideas (from the options page):**
+  - physical coins that spill when you're shaken;
+  - the star as a heavy trophy you carry home;
+  - trap stations;
+  - board damage that stays;
+  - more board games;
+  - the shrink-and-grow transition into minigames.
+
 ## 12e. Direction change: 3D destructible arenas (decided)
 
 These decisions supersede the board-walking loop and the 2D side-cutaway presentation above.

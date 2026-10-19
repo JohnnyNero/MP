@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 8 8 2l7 6v7H1z' fill='%23ffd040'/%3E%3C/svg%3E">
+<title>The Board</title>
+<link rel="stylesheet" href="./kit/hud.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "rapier": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/rapier.es.js"
+} }
+</script>
+</head>
+<body>
+<div id="stage"></div>
+<script type="module">
+  import { runBoard } from './board/mode.js';
+  import place from './board/board.js';
+  runBoard(place).catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:auto 0 0 0;color:#fff;background:#600;padding:12px;z-index:99">${e.stack || e}</pre>`); });
+</script>
+</body>
+</html>

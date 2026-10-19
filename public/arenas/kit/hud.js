@@ -27,11 +27,11 @@ export function createHUD({ title = 'Arena', helpHTML = '', wipeText = 'TABLETOP
     banner(big, sub = '', dur = 2, now = 0) { bigEl.textContent = big; subEl.textContent = sub; subEl.classList.toggle('has', !!sub); banner.classList.remove('on'); void banner.offsetWidth; banner.classList.add('on'); bannerUntil = now + dur; },
     clearBanner() { banner.classList.remove('on'); bannerUntil = 0; },
     update(now) { if (now > bannerUntil) banner.classList.remove('on'); },
-    chips(list) { chips.innerHTML = list.map((p) => `<div class="chip ${p.out ? 'out' : ''}" style="background:${p.color}">${p.name}<small>${p.out ? 'OUT' : p.human ? 'PLAYER' : 'CPU'}</small></div>`).join(''); },
+    chips(list) { chips.innerHTML = list.map((p) => `<div class="chip ${p.out ? 'out' : ''}" style="background:${p.color}">${p.name}<small>${p.sub ?? (p.out ? 'OUT' : p.human ? 'PLAYER' : 'CPU')}</small></div>`).join(''); },
     // match (optional): { label, final, nextName, table: [{ i, pts, delta, rank }] } adds the running standings
     showResults(res, { colors, isHuman, match = null }) {
       results.style.display = 'flex';
-      results.querySelector('h1').textContent = res.draw ? 'DRAW!' : res.survivors.length === 1 ? `P${res.survivors[0] + 1} WINS!` : res.survivors.length ? `${res.survivors.length} SURVIVORS!` : `P${res.winners[0] + 1} LASTED LONGEST!`;
+      results.querySelector('h1').textContent = res.title ? res.title : res.draw ? 'DRAW!' : res.survivors.length === 1 ? `P${res.survivors[0] + 1} WINS!` : res.survivors.length ? `${res.survivors.length} SURVIVORS!` : `P${res.winners[0] + 1} LASTED LONGEST!`;
       const mEl = results.querySelector('.match'), btn = results.querySelector('#again');
       if (match) {
         const top = match.table.filter((r) => r.rank === 1).map((r) => 'P' + (r.i + 1));

@@ -7,7 +7,8 @@
 // They write the same { x, y, jump, grab, aim } controller a human does.
 //
 // ctx (built by run.js each step): { points, hints, dangers, toLocal, toWorld, dirToWorld, cameraBasis, waterHeight,
-//   hasFloor(worldPos), blocked(pos, dir), others: [[x, z], ...], grabbables() -> [{ rb, x, z, y, mass, held }], players() }
+//   hasFloor(worldPos), blocked(pos, dir), others: [[x, z], ...], grabbables() -> [{ rb, x, z, y, mass, held }], players(),
+//   goal(player) -> [x, z, y] | null (optional: a game mode's destination, which replaces picking a safe spot) }
 // points: arena walkable points [x, z, y, tag] in the arena's local frame.
 // hints (arena.botHints): { edgeDist(x, z), route(from, to) -> [x, z, y] | null, obstacles: [{ x0, x1, z0, z1 }], prefer(pt, ctx) -> bonus }
 // dangers (pushed by hazards): { kind: 'circle', x, z, r } | { kind: 'lane', axis: 'x'|'z', c, hw } |
@@ -226,8 +227,10 @@ export function createBot(rng, { mischief = 1 } = {}) {
           return finish(inp);
         }
       }
-      // ---- roam: pick the best safe spot and go there
-      if (!target || retarget <= 0 || changed || (inDanger && retarget < 0.6) || (wind && target[3] !== wind.holdTag && retarget > 0.3)) {
+      // ---- roam: pick the best safe spot and go there (or the goal the game mode sets: ctx.goal(player) -> [x, z, y])
+      const forced = ctx.goal?.(player);
+      if (forced) target = forced;
+      else if (!target || retarget <= 0 || changed || (inDanger && retarget < 0.6) || (wind && target[3] !== wind.holdTag && retarget > 0.3)) {
         let best = null, bs = -1e9;
         for (const pt of ctx.points) { const s = score(pt, mePt, ctx); if (s > bs) { bs = s; best = pt; } }
         target = best; retarget = 1.2 + rng() * 1.8;

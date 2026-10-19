@@ -1,12 +1,27 @@
 # TABLETOP
 
-A local 2–4 player party game for the browser, built for a Steam Deck docked to a TV. A cursed board game pulls
-everyone into a small destructible 3D arena and deals a disaster. Wobbly bean characters grab, throw, hang and
-climb. Survive the round, score points, and win the match.
+A local 2–4 player party game for the browser, built for a Steam Deck docked to a TV. Wobbly bean characters
+grab, throw, hang and climb across a physical 3D board game on a tabletop. Roll, walk, shove, grab the star.
 
 **Play:** https://johnnynero.github.io/MP/ (deployed by GitHub Actions; the menu is at `/arenas/`)
 
-## How a match works
+## The Board (new)
+
+1. **Roll:** a die hovers over your head. Jump to hit it. It tumbles for real, and if it falls off the table it
+   counts as a 1.
+2. **Walk:** your coloured pegs light up the spaces you can reach, and an arrow marks where your roll ends.
+   Everyone walks at once for 8 seconds.
+3. **Land:** where you are standing when time is up is where you land. Blue +3 coins, red −3. Stop on the star
+   with 10 coins to buy it. Shove, grab and throw the others off their spaces.
+4. **King of the Hill** every third turn: stay on top of the tower to score coins.
+5. The red bridge in the middle is a risky shortcut. Fall off the table and you lose 3 coins and go back to your
+   space.
+
+Most stars after the last turn wins, then coins. `?turns=N` sets the length (default 10, about 4 minutes).
+
+## The disaster arenas
+
+The earlier game, still playable from the menu (it may come back as minigames).
 
 1. **Play a match** from the menu: six rounds that rotate through the arenas.
 2. Each round deals a disaster with a warning (glowing circles, lanes, shadows, alarms). About halfway through, a
@@ -39,17 +54,17 @@ stampede (barrels, fruit, runaway cargo), giant stomp (kraken, loader arm), deco
 ```
 npm install
 npm run dev        # local dev server (open /arenas/)
-npm test           # unit tests: match scoring, arena layouts, and the parked 2D rules engine
+npm test           # unit tests: board rules, match scoring, arena layouts, and the parked 2D rules engine
 npm run typecheck
 npm run build      # dist/ (relative base, works on Pages)
 ```
 
-- **The game:** `public/arenas/` is plain ES modules with no build step: Three.js and Rapier from a CDN importmap. `kit/` is the shared runtime; each arena is a folder plus a page. See `public/arenas/kit/KIT.md`.
+- **The game:** `public/arenas/` is plain ES modules with no build step: Three.js and Rapier from a CDN importmap. `kit/` is the shared runtime (`engine.js` runs a mode: the board or the disaster round); `board/` is the board game; each arena is a folder plus a page. See `public/arenas/kit/KIT.md`.
 - **Tools:** `tools/` (destruction bake, Blender character pipeline, headless bot probes). See `tools/README.md`.
 - **CI:** one job runs typecheck, unit tests, build, a headless arena smoke test (`tools/probes/smoke.mjs`), then deploy.
 - **Parked:** `src/` and `legacy.html` are the earlier 2D board game, kept for reference.
 
-### Debug URL parameters (arena pages)
+### Debug URL parameters (arena and board pages)
 
 | Parameter | Effect |
 |---|---|
@@ -59,5 +74,6 @@ npm run build      # dist/ (relative base, works on Pages)
 | `?quality=high` | Never lower quality automatically |
 | `?bench=1` | Benchmark round (also on the menu) |
 | `?shake=off` | No camera shake |
+| `?turns=N` | Board: game length in turns |
 
 Design docs live in `docs/`. Project conventions are in `CLAUDE.md`.

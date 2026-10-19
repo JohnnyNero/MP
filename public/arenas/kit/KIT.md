@@ -1,10 +1,11 @@
 # TABLETOP arena kit
 
-Shared runtime for arenas: the round loop, shared camera, input, HUD, bots, disaster deck, destruction and test hooks, as no-build ES modules. An arena module supplies only the place. `kitchen/` is the reference arena, `ship/` is the moving-frame one, and `station/` adds a new disaster and the hit-bias hooks.
+Shared runtime for arenas and the board: the engine, the round loop, shared camera, input, HUD, bots, disaster deck, destruction and test hooks, as no-build ES modules. An arena module supplies only the place. `kitchen/` is the reference arena, `ship/` is the moving-frame one, and `station/` adds a new disaster and the hit-bias hooks.
 
 | File | Role |
 |---|---|
-| `run.js` | `runArena(arena)`: fixed 60 Hz step, adaptive quality, `window.__*` hooks |
+| `engine.js` | `createEngine(place)`: renderer, fixed 60 Hz step, physics world, players, bots, destruction, water, hazards, shared camera, render interpolation, adaptive quality, generic `window.__*` hooks. Runs a **mode** (the rules) |
+| `run.js` | `runArena(arena)`: the disaster-round mode (round flow, results, matches, Deck benchmark) |
 | `round.js` | pull → reveal → prep → active (escalation 30 s / 43 s) → finish → results (ties, draw, `settle`-shaped) |
 | `match.js` | matches across pages (sessionStorage, `?match=1`): arena order, 3/2/1/0 scoring, standings. Pure, unit-tested |
 | `camera.js`, `input.js`, `hud.js`/`hud.css`, `fx.js` | camera, pads/keyboard/rumble, TV HUD, effects/telegraphs/sfx |
@@ -14,6 +15,19 @@ Shared runtime for arenas: the round loop, shared camera, input, HUD, bots, disa
 | `ragdoll.js`, `character.js` | the real character: kit copy of `proto3d/character.js` (6-body active ragdoll) behind the kit player interface |
 | `props.js` | loose grabbable props (`arena.props`) |
 | `destruct.js`, `materials.js`, `smash.js` | fracture engine, materials, "fragile things shatter" rule |
+
+## Engine and modes
+
+`engine.js` owns everything physical; a mode owns the rules. `run.js` is the disaster round; `../board/mode.js` is
+the board game. A mode is an object of hooks (see the header of `engine.js`): `tick(dt)`, `input(edges)`,
+`playerState(p)` → `{ locked, invulnerable, bot }` (required), `botThink(p, dt, botCtx)`, `armed()`, `knocks()`,
+`onFall(p)` (default: out; the board puts you back on your space), `onOut`, `view(dt)` (frame the camera, set the
+timer), `cutaway()`, `chips()`, `postStep(dt)`, `interpTargets()`, `onFrame`, `lockQuality`. Start with
+`eng.buildWorld()` then `eng.start(mode, addHooks)`; `eng.buildWorld()` again rebuilds the world for a new round.
+
+Bots: a mode can steer the arena bot by setting `botCtx.goal = (player) => [x, z, y]` (local); the bot walks there
+with `botHints.route(from, to)` instead of picking a safe spot, and keeps its mischief (grab, drag, throw), climbing
+and fall catches. Mischief only runs while `ctx.round.phase === 'active'`.
 
 ## Making an arena
 

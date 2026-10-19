@@ -50,6 +50,7 @@ node tools/probes/disasters.mjs [arena,...] [rounds]   # eliminations per disast
 node tools/probes/arms.mjs [arena]                     # arm snap count (stutter check)
 node tools/probes/camera.mjs [arena,...] [seconds]     # camera: jitter, players cut off, telegraphs off screen, bean size
 node tools/probes/match.mjs                            # a full match from the menu
+node tools/probes/board.mjs [seeds] [turns]            # board games: walks that hit their space, falls, hill, bean size
 ```
 
 Env: `ARENAS_URL` (default `http://localhost:4180/arenas/`), `PLAYWRIGHT_MODULE` (path to playwright if it isn't
