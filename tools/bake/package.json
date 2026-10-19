@@ -1,0 +1,7 @@
+{
+  "name": "tabletop-bake",
+  "private": true,
+  "type": "module",
+  "description": "Destruction bake: intact parts -> pre-fractured chunks + support graph (run from the repo root, see tools/README.md)",
+  "dependencies": { "@dgreenheck/three-pinata": "2.0.1", "three": "0.160.0" }
+}
