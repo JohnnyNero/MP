@@ -12,7 +12,9 @@
 // hints (arena.botHints): { edgeDist(x, z), route(from, to) -> [x, z, y] | null, obstacles: [{ x0, x1, z0, z1 }], prefer(pt, ctx) -> bonus }
 // dangers (pushed by hazards): { kind: 'circle', x, z, r } | { kind: 'lane', axis: 'x'|'z', c, hw } |
 //   { kind: 'water', level } (stay where the floor is no deeper than ~0.1 under level) | { kind: 'high', bonus } (prefer height) |
-//   { kind: 'prefer', tag, bonus } (e.g. lightning: shelter points)
+//   { kind: 'prefer', tag, bonus } (e.g. lightning: shelter points) |
+//   { kind: 'wind', dir: [dx, dz], holdTag, active } (decompression: stay away from the opening, hold on at holdTag
+//   points; hints.holdDir(pt) -> [dx, dz] says which way the handhold is from such a point)
 // player (kit player interface + ragdoll extras when present): position, grounded, stun, hanging, holding, heldBy, hangDir()
 const segRect = (ax, az, bx, bz, r) => {
   // does segment a->b cross the rect (Liang-Barsky)?
@@ -70,6 +72,7 @@ export function createBot(rng, { mischief = 1 } = {}) {
       else if (d.kind === 'water') { if (y < d.level - 0.12) s -= 10; s += Math.min(1, Math.max(0, y)) * 2; }   // drowning starts 0.3 deep: keep a margin
       else if (d.kind === 'high') s += Math.min(1.2, y) * (d.bonus ?? 3);
       else if (d.kind === 'prefer' && pt[3] === d.tag) s += d.bonus ?? 3;
+      else if (d.kind === 'wind') { s -= (x * d.dir[0] + z * d.dir[1]) * 0.7; if (pt[3] === d.holdTag) s += d.active ? 9 : 1.5; }
     }
     s += ctx.hints?.prefer?.(pt, ctx) ?? 0;
     for (const o of ctx.others) if (o !== me && Math.hypot(x - o[0], z - o[1]) < 1.3) s -= 1.5;
@@ -151,11 +154,22 @@ export function createBot(rng, { mischief = 1 } = {}) {
       }
       const key = ctx.dangers.map((d) => d.kind + (d.x ?? d.c ?? d.level ?? '')).join('|'); const changed = key !== lastDangerKey; lastDangerKey = key;
       const inDanger = dangerAt(ctx, me.x, me.z, 0.6);
+      // decompression: at a handhold, face it and grip until the surge has passed
+      const wind = ctx.dangers.find((d) => d.kind === 'wind' && d.active);
+      if (wind) {
+        if (mode !== 'roam') setMode('roam');
+        if (player.grounded && target && target[3] === wind.holdTag && Math.hypot(target[0] - me.x, target[1] - me.z) < 1.1) {
+          const hd = ctx.hints?.holdDir?.(target) || [-wind.dir[0], -wind.dir[1]];
+          const wd = ctx.dirToWorld(hd[0], hd[1]), cb = ctx.cameraBasis(), out = NONE();
+          out.x = (wd.x * cb.rx + wd.z * cb.rz) * 0.35; out.y = (wd.x * cb.fx + wd.z * cb.fz) * 0.35; out.grab = true; out.aim = 0.15;
+          return out;
+        }
+      }
       // survival first: drop everything and flee
       if (inDanger && mode !== 'roam') { setMode('roam'); actionCd = Math.max(actionCd, 1.5); }
       const holding = player.holding || null;
       // ---- mischief
-      if (mode === 'roam' && !inDanger && actionCd <= 0 && player.grounded && !holding && mischief > 0 && (ctx.phase?.() ?? 'active') === 'active') {   // no mischief before GO
+      if (mode === 'roam' && !inDanger && !wind && actionCd <= 0 && player.grounded && !holding && mischief > 0 && (ctx.phase?.() ?? 'active') === 'active') {   // no mischief before GO
         actionCd = 2.5 + rng() * 3;
         const roll = rng();
         if (roll < 0.4 * mischief) {
@@ -213,7 +227,7 @@ export function createBot(rng, { mischief = 1 } = {}) {
         }
       }
       // ---- roam: pick the best safe spot and go there
-      if (!target || retarget <= 0 || changed || (inDanger && retarget < 0.6)) {
+      if (!target || retarget <= 0 || changed || (inDanger && retarget < 0.6) || (wind && target[3] !== wind.holdTag && retarget > 0.3)) {
         let best = null, bs = -1e9;
         for (const pt of ctx.points) { const s = score(pt, mePt, ctx); if (s > bs) { bs = s; best = pt; } }
         target = best; retarget = 1.2 + rng() * 1.8;

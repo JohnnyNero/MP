@@ -402,9 +402,9 @@ export async function runArena(arena) {
         sim: +mean(BENCH.tick).toFixed(1), phys: +mean(BENCH.phys).toFixed(1), chr: +mean(BENCH.chr).toFixed(1),
         res: `${renderer.domElement.width}x${renderer.domElement.height}`, secs: Math.round(avg * n / 1000), gpu });
     }
-    const next = /^[a-z]+$/.test(Q.get('next') || '') ? Q.get('next') : null;
+    const queue = (Q.get('next') || '').split(',').filter((n) => /^[a-z]+$/.test(n)), next = queue[0] || null;
     hud.bench(prev, next ? 'Press A or Enter for the next arena' : 'Press A or Enter to go back to the menu');
-    BENCH.go = () => { location.href = next ? `./${next}.html?bench=1&r=${encodeURIComponent(JSON.stringify(prev))}` : './index.html'; };
+    BENCH.go = () => { location.href = next ? `./${next}.html?bench=1&next=${queue.slice(1).join(',')}&r=${encodeURIComponent(JSON.stringify(prev))}` : './index.html'; };
   }
   const qd = Q.get('disaster');
   const initial = qd && (allowed.includes(qd) || (Q.get('any') && HAZARDS[qd])) ? qd : allowed[Math.floor(mulberry32(hash('pick:' + seed))() * allowed.length)];

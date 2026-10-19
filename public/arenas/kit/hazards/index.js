@@ -5,4 +5,5 @@ import meteor from './meteor.js';
 import flood from './flood.js';
 import stampede from './stampede.js';
 import stomp from './stomp.js';
-export const HAZARDS = { lightning, meteor, flood, stampede, stomp };
+import decompress from './decompress.js';
+export const HAZARDS = { lightning, meteor, flood, stampede, stomp, decompress };

@@ -5,9 +5,9 @@
 //   cam.frame(dt, points)    points: Vector3[] of living players (feet); empty = home framing
 //   cam.shake(0..1)          cam.apply(dt)   (after reveal/frame, every rendered frame)
 // Default pitch is 35 deg: low enough to see faces and the height of things, high enough to read the whole floor and
-// the front drop. `look` raises the look-at point above the players' feet, `zBias` pushes it toward the back wall.
+// the front drop. `include` lists points always kept in frame. `look` raises the look-at point above the players' feet, `zBias` pushes it toward the back wall.
 export function createSharedCamera({ THREE, camera, pitchDeg = 35, fov = 38, minDist = 16, maxDist = 30, padX = 2.4, padZ = 1.8, padY = 1.2,
-  center = [0, 0, 0], homeSize = [14, 1, 6], centerPull = 0.35, lift = 0.6, zBias = -0.6, revealFrom = 9, revealTo = 28, revealCenter = null, revealLift = null, yMin = -Infinity }) {
+  center = [0, 0, 0], homeSize = [14, 1, 6], centerPull = 0.35, lift = 0.6, zBias = -0.6, revealFrom = 9, revealTo = 28, revealCenter = null, revealLift = null, yMin = -Infinity, include = [] }) {
   camera.fov = fov; camera.updateProjectionMatrix();
   const PITCH = THREE.MathUtils.degToRad(pitchDeg);
   const dir = new THREE.Vector3(0, Math.sin(PITCH), Math.cos(PITCH));
@@ -17,6 +17,7 @@ export function createSharedCamera({ THREE, camera, pitchDeg = 35, fov = 38, min
   const target = new THREE.Vector3().copy(C); let dist = (minDist + maxDist) / 2, trauma = 0;
   const bb = new THREE.Box3(), tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), tgt = new THREE.Vector3();
   const homeV = new THREE.Vector3(...homeSize);
+  const incl = include.map((q) => new THREE.Vector3(...q));     // points always kept in frame (e.g. the danger edge)
   const api = {
     basis, pitchDeg, get target() { return target; }, get dist() { return dist; },
     setCenter(v) { C.copy(v); },
@@ -29,6 +30,7 @@ export function createSharedCamera({ THREE, camera, pitchDeg = 35, fov = 38, min
     frame(dt, points) {
       bb.makeEmpty(); for (const p of points) bb.expandByPoint(p);
       if (!points.length) bb.setFromCenterAndSize(C, homeV);
+      for (const q of incl) bb.expandByPoint(q);
       bb.expandByPoint(bb.getCenter(tmp).lerp(C, centerPull));
       const c = bb.getCenter(tmp); const s = bb.getSize(tmp2);
       const vf = THREE.MathUtils.degToRad(camera.fov) / 2, hf = Math.atan(Math.tan(vf) * camera.aspect);

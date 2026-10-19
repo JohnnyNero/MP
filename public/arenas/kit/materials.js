@@ -27,4 +27,9 @@ export const MATERIALS = {
   jar_lid:     { density: 170, health: 30, bondStrength: 2.5e4, impactForce: 2.0e4, fatigue: 0.6, color: 0xd9dfe6, inner: 0xb0b8c0, roughness: 0.35, metalness: 0.6 },
   enamel:      { density: 260, health: 150, bondStrength: 6.0e5, impactForce: 3.0e5, fatigue: 0.4, color: 0x8fd3c1, inner: 0xc9d2d8, roughness: 0.3, metalness: 0.25 },
   chrome:      { density: 260, health: 150, bondStrength: 6.0e5, impactForce: 3.0e5, fatigue: 0.4, color: 0xe4e9ee, inner: 0xb8c2cc, roughness: 0.25, metalness: 0.8 },
+  // space station cargo: light painted shells (toy-throwable when broken), a glass console screen
+  cargo_orange: { density: 120, health: 70, bondStrength: 3.2e5, impactForce: 3.5e4, fatigue: 0.9, color: 0xf08a2c, inner: 0x5a6470, roughness: 0.55, metalness: 0.2 },
+  cargo_teal:   { density: 120, health: 70, bondStrength: 3.2e5, impactForce: 3.5e4, fatigue: 0.9, color: 0x2fa4a8, inner: 0x5a6470, roughness: 0.55, metalness: 0.2 },
+  console_grey: { density: 300, health: 120, bondStrength: 5.0e5, impactForce: 2.0e5, fatigue: 0.5, color: 0x8a94a6, inner: 0x4a5262, roughness: 0.4, metalness: 0.4 },
+  screen:       { density: 600, health: 8, bondStrength: 2.4e4, impactForce: 1.8e3, fatigue: 0.6, color: 0x56d8ff, inner: 0xd8f6ff, roughness: 0.1, metalness: 0.1, opacity: 0.85 },
 };
