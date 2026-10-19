@@ -244,8 +244,8 @@ const arena = {
   assets: { pieces: { GLB_BASE64, SUPPORT } },
   frame,
   // 35 deg: faces and mast heights read; the whole deck and both rails stay in view while the ship lists
-  camera: { pitchDeg: 35, fov: 36, minDist: 22, maxDist: 28, padX: 2.6, padZ: 1.6, padY: 1.2, center: [-0.6, 1.4, 0.2], homeSize: [16, 1, 6.4],
-    centerPull: 0.75, lift: 0.45, zBias: -0.1, revealFrom: 10, revealTo: 27, revealCenter: [-0.5, 1.8, 0], revealLift: 0.4, yMin: 0.7 },
+  camera: { pitchDeg: 35, fov: 36, minDist: 15, maxDist: 25, padX: 1.7, padZ: 1.0, padY: 0.9, center: [-0.6, 1.4, 0.2], homeSize: [13, 1, 5.6],
+    centerPull: 0.4, lift: 0.45, zBias: -0.1, revealFrom: 10, revealTo: 27, revealCenter: [-0.5, 1.8, 0], revealLift: 0.4, yMin: 0.7 },
   spawns: L.SPAWNS,
   overboard: [0, 0.5, 5.5],
   ledges: L.LEDGES,

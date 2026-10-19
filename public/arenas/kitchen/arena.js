@@ -71,8 +71,8 @@ function fruitMesh(color, r, berry = false) {
   };
 }
 // The shared camera at 35 deg: faces and heights read, the whole counter and the front drop stay in view
-export const KITCHEN_CAMERA = { pitchDeg: 35, fov: 36, minDist: 16.5, maxDist: 24, padX: 2.4, padZ: 1.2, padY: 0.9, center: [0, 0.2, 0.9], homeSize: [16, 1, 7.6],
-  centerPull: 0.45, lift: 0.1, zBias: 0.15, revealFrom: 9, revealTo: 25, revealCenter: [0, 0.9, 0], revealLift: 0.6, yMin: -0.3 };
+export const KITCHEN_CAMERA = { pitchDeg: 35, fov: 36, minDist: 11.5, maxDist: 21, padX: 1.5, padZ: 0.8, padY: 0.7, center: [0, 0.2, 0.9], homeSize: [12, 1, 6],
+  centerPull: 0.2, lift: 0.1, zBias: 0.15, revealFrom: 9, revealTo: 25, revealCenter: [0, 0.9, 0], revealLift: 0.6, yMin: -0.3 };
 
 // ---------------------------------------------------------------- the arena module
 const state = { tracked: [], splats: [], shelfQueue: [], faucet: null, visuals: null, toppledEver: new Set(), brokenEver: new Set() };

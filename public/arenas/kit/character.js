@@ -154,6 +154,10 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
   const M_UPPER = M_TOTAL - MASS.ball;
   const WEIGHT = M_TOTAL * -GRAV;
   const ARM = 0.43 * K;
+  // visible bean volume in the chest frame (height above the feet, half-width; depth = 0.84 x width), so hands and their
+  // reach targets stay outside the body even though the hand colliders ignore their own torso
+  const BODY_PROF = [[0.16, 0.15], [0.3, 0.25], [0.5, 0.267], [0.77, 0.25], [0.96, 0.2], [1.07, 0.11], [1.1, 0]].map(([y, r]) => [y * K, r * K]);
+  const BODY_DEPTH = 0.84, HAND_GAP = 0.085 * K;
   const WALK = 5.0;                                   // top ground speed (m/s)
   const JUMP_V = Math.sqrt(2 * -GRAV * 1.6 * K);      // fixed apex
   const SENS = { head: 2, chest: 1, pelvis: 1, ball: 0.6, handL: 0, handR: 0 };   // knockdown sensitivity per part
@@ -164,6 +168,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
   const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
   const toV = (o, v = V()) => v.set(o.x, o.y, o.z);
   const toQ = (o, q = new THREE.Quaternion()) => q.set(o.x, o.y, o.z, o.w);
+  const _qB = new THREE.Quaternion(), _vB = new THREE.Vector3();
   const rapV = v => ({ x: v.x, y: v.y, z: v.z });
   // quaternion error -> rotation vector (axis * angle), shortest way
   function rotVec(qErr, out) {
@@ -278,6 +283,31 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       if (parent) parent.rb.applyTorqueImpulse({ x: -tau.x, y: -tau.y, z: -tau.z }, true);
     }
     // max-distance link (a rope) solved as a velocity impulse before the physics step, equal and opposite
+    // push a world point out of the visible body (in place); returns the outward normal and depth, or null if outside
+    outside(p) {
+      const cp = this.chest.rb.translation(), q = toQ(this.chest.rb.rotation(), _qB);
+      const l = _vB.set(p.x - cp.x, p.y - cp.y, p.z - cp.z).applyQuaternion(q.invert());   // q now holds the inverse
+      const y = l.y + Y.chest; if (y <= BODY_PROF[0][0] || y >= BODY_PROF[BODY_PROF.length - 1][0]) return null;
+      let k = 1; while (BODY_PROF[k][0] < y) k++;
+      const [y0, r0] = BODY_PROF[k - 1], [y1, r1] = BODY_PROF[k], rx = r0 + (r1 - r0) * (y - y0) / (y1 - y0) + HAND_GAP, rz = rx * BODY_DEPTH;
+      const e = Math.hypot(l.x / rx, l.z / rz); if (e >= 1) return null;
+      const s = e > 1e-3 ? 1 / e : 1; if (e <= 1e-3) l.x = rx * 0.5;           // dead centre: out to the side
+      const depth = Math.hypot(l.x, l.z) * (s - 1);
+      l.x *= s; l.z *= s; l.y = y - Y.chest; l.applyQuaternion(q.invert()).add(cp);       // back to world
+      const n = V(l.x - p.x, l.y - p.y, l.z - p.z); p.copy(l);
+      return depth > 1e-5 ? { n: n.normalize(), depth } : null;
+    }
+    // hands ignore their own torso in the physics, so a soft contact keeps them on the skin
+    keepOut(h, dt) {
+      const hp = toV(h.rb.translation()), hit = this.outside(hp); if (!hit) return;
+      const { n, depth } = hit, va = this.chest.rb.linvel(), vb = h.rb.linvel();
+      const rv = (vb.x - va.x) * n.x + (vb.y - va.y) * n.y + (vb.z - va.z) * n.z;
+      const dv = Math.min(4, depth * 0.8 / dt) - rv; if (dv <= 0) return;
+      const mb = h.joint ? (h.kind === 'static' ? Infinity : MASS.hand + Math.min(h.objMass, 4 * MS)) : MASS.hand, ma = 2.5 * MS;
+      const j = dv / (1 / ma + 1 / mb);
+      if (Number.isFinite(mb)) h.rb.applyImpulse({ x: n.x * j, y: n.y * j, z: n.z * j }, true);
+      this.chest.rb.applyImpulse({ x: -n.x * j, y: -n.y * j, z: -n.z * j }, true);
+    }
     tether(a, aw, b, mb, maxLen, dt) {
       const bp = b.rb.translation(), d = V(bp.x - aw.x, bp.y - aw.y, bp.z - aw.z), len = d.length();
       if (len <= maxLen) return;
@@ -468,6 +498,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       for (const h of this.hands) {
         const mb = h.joint ? (h.kind === 'static' ? Infinity : MASS.hand + Math.min(h.objMass, 4 * MS)) : MASS.hand;
         this.tether(this.chest, h.sh, h, mb, ARM, dt);
+        this.keepOut(h, dt);
       }
       if (this.mantle) {
         const m = this.mantle; m.t -= dt;
@@ -577,6 +608,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
           }
           tgt = sh.clone().addScaledVector(dir, reach);
         }
+        if (!(h.joint && h.kind === 'static')) this.outside(tgt);      // never aim a hand into our own body
         h.t.copy(tgt);
         // time-optimal constant-acceleration drive, relative to the ball: arrives and stops, no ringing
         const d = tgt.clone().sub(hp), dist = d.length();
