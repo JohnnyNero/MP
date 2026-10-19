@@ -3,6 +3,7 @@
 // walk off a drop. Between dodges they play: grab a nearby prop and throw it at someone, grab a nearby player and
 // drag them to a drop (or into a telegraph) and throw them, and climb back up when they end up hanging off a ledge.
 // Survival comes first: any telegraph on or near them cancels the mischief (they drop what they hold and flee).
+// Knocked or blasted past an edge, they reach for the lip on the way down and climb back.
 // They write the same { x, y, jump, grab, aim } controller a human does.
 //
 // ctx (built by run.js each step): { points, hints, dangers, toLocal, toWorld, dirToWorld, cameraBasis, waterHeight,
@@ -30,7 +31,7 @@ export function inDangerAt(d, x, z, pad = 0) {
 const NONE = () => ({ x: 0, y: 0, jump: false, grab: false, aim: 0 });
 
 export function createBot(rng, { mischief = 1 } = {}) {
-  let target = null, retarget = 0, jumpHold = 0, stuckT = 0, lastPos = null, lastDangerKey = '';
+  let target = null, retarget = 0, jumpHold = 0, stuckT = 0, lastPos = null, lastDangerKey = '', airT = 0;
   // play state: roam (dodge + reposition) | fetch (walk to a prop) | carry (take it to someone, throw) | attack (grab a player) | drag (to a drop, throw)
   let mode = 'roam', modeT = 0, actionCd = 5 + rng() * 5, prop = null, prey = null, dropGoal = null, throwT = -1, lastMode = 'roam';
   const stats = { fetch: 0, carry: 0, attack: 0, drag: 0, throws: 0, climbs: 0 };
@@ -128,7 +129,7 @@ export function createBot(rng, { mischief = 1 } = {}) {
     think(dt, player, ctx) {
       dt0 = dt;
       const me = ctx.toLocal(player.position); const mePt = [me.x, me.z, me.y];
-      retarget -= dt; modeT += dt; actionCd -= dt;
+      retarget -= dt; modeT += dt; actionCd -= dt; airT = player.grounded ? 0 : airT + dt;
       // hanging off a ledge: look up, keep the grip, pull toward the ledge -> the character mantles over
       if (player.hanging) {
         const dir = player.hangDir?.(); const out = NONE(); out.grab = true; out.aim = 1;
@@ -138,6 +139,16 @@ export function createBot(rng, { mischief = 1 } = {}) {
       }
       if (mode === 'climb') setMode('roam');
       if (player.stun > 0) { if (mode !== 'roam') setMode('roam'); return NONE(); }
+      // falling with nothing below to land on: reach up for the lip, steering back toward the nearest floor
+      if (!player.grounded && airT > 0.15 && (player.velocity?.y ?? 0) < -1 && ctx.floorBelow && !ctx.floorBelow(player.position, 2.0)) {
+        let best = null, bd = 1e9;
+        for (const pt of ctx.points) { if (pt[2] < me.y - 2.5) continue; const dd = Math.hypot(pt[0] - me.x, pt[1] - me.z); if (dd < bd) { bd = dd; best = pt; } }
+        const out = NONE(); out.grab = true; out.aim = 0.9;
+        if (best && bd > 0.05) { const wd = ctx.dirToWorld((best[0] - me.x) / bd, (best[1] - me.z) / bd), cb = ctx.cameraBasis(); out.x = wd.x * cb.rx + wd.z * cb.rz; out.y = wd.x * cb.fx + wd.z * cb.fz; }
+        if (mode !== 'roam') setMode('roam');
+        if (!stats.catches) stats.catches = 0; if (airT < 0.17 + dt) stats.catches++;
+        return out;
+      }
       const key = ctx.dangers.map((d) => d.kind + (d.x ?? d.c ?? d.level ?? '')).join('|'); const changed = key !== lastDangerKey; lastDangerKey = key;
       const inDanger = dangerAt(ctx, me.x, me.z, 0.6);
       // survival first: drop everything and flee

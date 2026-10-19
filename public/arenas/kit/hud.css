@@ -26,6 +26,7 @@ canvas { display: block; }
   background: var(--panel); border: 3px solid var(--accent); opacity: 0; transition: opacity 0.25s; }
 #banner.on .big { transform: scale(1); opacity: 1; }
 #banner.on .sub.has { opacity: 1; }
+#banner .sub:empty { display: none; }
 #chips { bottom: 2.4vh; left: 50%; transform: translateX(-50%); display: flex; gap: 1.2vw; }
 .chip { min-width: clamp(120px, 9vw, 190px); padding: 8px 16px 9px; border-radius: 16px; border: 4px solid var(--edge); color: #fff;
   font: 900 clamp(20px, 1.7vw, 34px)/1.05 system-ui, sans-serif; text-align: center; box-shadow: 0 5px 0 rgba(0,0,0,0.45); transition: filter 0.3s, opacity 0.3s;
@@ -59,3 +60,10 @@ kbd { font: 800 0.85em/1 ui-monospace, monospace; background: rgba(0,0,0,0.35); 
 #fps { left: 1vw; bottom: 1vh; font: 700 13px/1 ui-monospace, monospace; color: rgba(255,255,255,0.55); text-shadow: 0 1px 2px #000; }
 #loading { inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: var(--bg); font: 900 clamp(28px, 3vw, 60px)/1 system-ui, sans-serif; color: var(--accent); }
 @media (max-width: 700px) { #chips { gap: 8px; } .chip { min-width: 0; padding: 6px 10px; } #tag { max-width: 60vw; } }
+#snd { left: 50%; bottom: 13vh; transform: translateX(-50%); display: none; padding: 0.6em 1.2em; border-radius: 999px; background: var(--panel); color: #fff3d4; font: 700 clamp(14px, 1.4vw, 24px)/1.2 system-ui, sans-serif; border: 3px solid var(--accent); }
+#bench { inset: 0; z-index: 8; display: none; align-items: center; justify-content: center; background: rgba(10, 6, 16, 0.7); }
+#bench .card { width: min(92vw, 1100px); padding: 3.4vh 3vw 3vh; border-radius: 28px; background: var(--panel); border: 5px solid var(--accent); color: #fff3d4; font: 600 clamp(15px, 1.5vw, 26px)/1.35 system-ui, sans-serif; }
+#bench h1 { margin: 0 0 2vh; font: 900 clamp(32px, 3.6vw, 64px)/1 system-ui, sans-serif; }
+#bench .brow { display: grid; gap: 0.3em; padding: 1.2vh 1.4vw; margin: 1vh 0; border-radius: 18px; background: rgba(255,255,255,0.07); }
+#bench .brow span, #bench .gpu { opacity: 0.75; font-size: 0.8em; }
+#bench .go { margin: 2vh 0 0; color: var(--accent); }

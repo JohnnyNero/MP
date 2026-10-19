@@ -29,10 +29,14 @@ function identityFrame() {
   };
 }
 
+const VOICE_PITCH = [1, 0.86, 1.15, 0.76];        // each bean sounds a little different
+
 export async function runArena(arena) {
   const Q = new URLSearchParams(location.search);
   const N_SLOTS = Math.max(2, Math.min(4, +(Q.get('n') || 4)));
-  const ALL_BOTS = Q.get('bots') === 'all';
+  // Deck benchmark (?bench=1[&next=ship]): an all-bot round at locked full quality, then a frame-time report
+  const BENCH = Q.get('bench') ? { frames: [], tick: [], phys: [], chr: [], shown: false, go: null } : null;
+  const ALL_BOTS = Q.get('bots') === 'all' || !!BENCH;
   const T = { ...DEFAULT_T, ...(arena.timing || {}) };
   const allowed = arena.disasters.filter((n) => HAZARDS[n]);
   const meta = (n) => ({ title: arena.hazardConfig?.[n]?.title ?? HAZARDS[n].title, hint: arena.hazardConfig?.[n]?.hint ?? HAZARDS[n].hint });
@@ -188,13 +192,19 @@ export async function runArena(arena) {
         const cause = p.fellOff ? 'fall' : (water && water.height(p.position.x, p.position.z) - p.position.y > 0.25) ? 'water' : 'out';   // (stand-ins clear inWater before onOut)
         round.recordOut(p.index, { cause, at: frame.toLocal(p.position).toArray().map((v) => +v.toFixed(1)) });
         if (cause === 'water') fx.splash(p.position, 1.4); else { fx.burst(p.position, 14, { colors: ['#ffffff', p.color], speed: 3, up: 4, size: 0.5, life: 0.9, g: 6 }); fx.ring(p.position, p.color, 2); }
+        if (cause !== 'water') fx.sfx('yelp', { pitch: VOICE_PITCH[p.index % 4] });
         fx.sfx('out'); cam.shake(0.35); refreshChips();
       },
       onKnock: (p) => input.rumble(p.index, 0.8, 250),
       ledges: arena.ledges ? worldLedges : null,
       onEvent: (type, p, what) => {
+        const pitch = VOICE_PITCH[p.index % 4];
+        if (type === 'jump') fx.sfx('boing', { pitch, vol: 0.8 });
+        else if (type === 'land' && what > 3.5) fx.sfx('squish', { pitch, vol: Math.min(1, 0.25 + (what - 3.5) / 8) });
+        else if (type === 'mantle') fx.sfx('hup', { pitch });
+        else if (type === 'knockout') { fx.sfx('bonk', { pitch }); input.rumble(p.index, 0.6, 200); }
         if (type === 'throw') { fx.sfx('whoosh'); input.rumble(p.index, 0.4, 120); ctx.events.push({ t: +simT.toFixed(2), type, i: p.index, what: what?.index ?? what?.userData?.name ?? (what?.userData?.destruct ? 'debris' : '?') }); }
-        else if (type === 'grab') { input.rumble(p.index, 0.25, 80); ctx.events.push({ t: +simT.toFixed(2), type, i: p.index }); }
+        else if (type === 'grab') { fx.sfx('pop', { pitch, vol: 0.8 }); input.rumble(p.index, 0.25, 80); ctx.events.push({ t: +simT.toFixed(2), type, i: p.index }); }
         else if (type === 'knockout' || type === 'mantle') ctx.events.push({ t: +simT.toFixed(2), type, i: p.index });
         if (ctx.events.length > 60) ctx.events.splice(0, ctx.events.length - 60);
       },
@@ -255,6 +265,7 @@ export async function runArena(arena) {
     points: surf.points, hints: arena.botHints || {}, dangers: ctx.dangers,
     toLocal: (v) => frame.toLocal(v, new THREE.Vector3()), toWorld: (x, y, z) => frame.toWorld(x, y, z, new THREE.Vector3()), dirToWorld: frame.dirToWorld,
     cameraBasis: () => cam.basis, waterHeight: (x, z) => (water ? water.height(x, z) : -1e9), hasFloor,
+    floorBelow: (w, depth) => !!castDown(w.x, w.z, w.y + 0.3, depth + 0.3),      // anything to land on within depth?
     // grabbable loose things in the local frame: [{ rb, x, z, y, mass }] (cached per step)
     grabbables() {
       if (botCtx._grab) return botCtx._grab; const out = [];
@@ -279,6 +290,8 @@ export async function runArena(arena) {
     arena.update?.(dt, ctx);
     // input
     const { edges } = input.poll();
+    if (edges.length) fx.audioOn();                      // counts as a gesture only where the browser already trusts the site
+    if (BENCH?.shown && (edges.some((e) => e.button === 0) || input.keyEdge.has('Enter'))) { BENCH.go(); return; }
     for (const e of edges) { if (e.button === 9) hud.toggleHelp(); if (e.button === 0 && ph === 'results') { playAgain(); return; } }
     if (input.keyEdge.has('KeyH')) hud.toggleHelp();
     if (ph === 'results' && ['Enter', 'Space', 'NumpadEnter'].some((c) => input.keyEdge.has(c))) { input.endStep(); playAgain(); return; }
@@ -352,7 +365,7 @@ export async function runArena(arena) {
   let noRender = false, paused = false, quality = 0, slowFor = 0;
   let last = performance.now(), acc = 0, fpsAcc = 0, fpsN = 0, fps = 0, tickMs = 0;
   function adapt() {
-    if (Q.get('quality') === 'high' || noRender || paused || quality >= 2) return;
+    if (BENCH || Q.get('quality') === 'high' || noRender || paused || quality >= 2) return;
     slowFor = fps < 45 ? slowFor + 0.5 : 0;
     if (slowFor < 4) return;
     slowFor = 0; quality++;
@@ -361,7 +374,11 @@ export async function runArena(arena) {
   }
   function frameLoop(now) {
     const ms = now - last; last = now;
-    fpsAcc += ms; fpsN++; if (fpsAcc > 500) { fps = Math.round(1000 * fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; hud.fps(fps + ' fps' + (quality ? ' q' + quality : '')); adapt(); }
+    fpsAcc += ms; fpsN++; if (fpsAcc > 500) { fps = Math.round(1000 * fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; hud.fps(fps + ' fps' + (quality ? ' q' + quality : '')); hud.sound(fx.soundOn); adapt(); }
+    if (BENCH && !BENCH.shown && !hud.helpOn) {
+      if (round.phase === 'active' || round.phase === 'finish') { BENCH.frames.push(ms); BENCH.tick.push(tickMs); BENCH.phys.push(physMs); BENCH.chr.push(charMs); }
+      else if (round.phase === 'results') benchShow();
+    }
     if (!paused && !hud.helpOn) {
       acc += Math.min(0.1, ms / 1000); let n = 0;
       const t0 = performance.now();
@@ -371,6 +388,21 @@ export async function runArena(arena) {
     }
     if (!noRender) { updateView(Math.min(0.05, ms / 1000)); renderer.render(scene, camera); }
     requestAnimationFrame(frameLoop);
+  }
+  function benchShow() {
+    BENCH.shown = true;
+    const f = BENCH.frames.slice(1).sort((a, b) => a - b), n = f.length, mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+    let prev = []; try { prev = JSON.parse(Q.get('r') || '[]'); if (!Array.isArray(prev)) prev = []; } catch { prev = []; }
+    if (n) {
+      let gpu = '?'; try { const gl = renderer.getContext(), e = gl.getExtension('WEBGL_debug_renderer_info'); gpu = String(e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)); } catch { /* hidden */ }
+      const avg = mean(f);
+      prev.push({ arena: arena.name, fps: Math.round(1000 / avg), low: Math.round(1000 / f[Math.min(n - 1, Math.floor(n * 0.99))]), worst: Math.round(f[n - 1]),
+        sim: +mean(BENCH.tick).toFixed(1), phys: +mean(BENCH.phys).toFixed(1), chr: +mean(BENCH.chr).toFixed(1),
+        res: `${renderer.domElement.width}x${renderer.domElement.height}`, secs: Math.round(avg * n / 1000), gpu });
+    }
+    const next = /^[a-z]+$/.test(Q.get('next') || '') ? Q.get('next') : null;
+    hud.bench(prev, next ? 'Press A or Enter for the next arena' : 'Press A or Enter to go back to the menu');
+    BENCH.go = () => { location.href = next ? `./${next}.html?bench=1&r=${encodeURIComponent(JSON.stringify(prev))}` : './index.html'; };
   }
   const qd = Q.get('disaster');
   const initial = qd && (allowed.includes(qd) || (Q.get('any') && HAZARDS[qd])) ? qd : allowed[Math.floor(mulberry32(hash('pick:' + seed))() * allowed.length)];

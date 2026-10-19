@@ -3,13 +3,35 @@
 //   const fx = createFX({ THREE, scene, rng });   fx.update(dt) once per fixed step;  fx.clear() between rounds
 export function createFX({ THREE, scene, rng, maxPuffs = 160 }) {
   // ---- audio (starts on first input; browsers block it before that)
-  let AC = null;
-  const audioOn = () => { if (!AC) { try { AC = new AudioContext(); } catch { AC = null; } } else if (AC.state === 'suspended') AC.resume(); };
+  // A gamepad press doesn't count as a user gesture in most browsers, so run.js also tries this on pad presses
+  // (it works where the browser already trusts the site) and the HUD asks for a click or key while sound is off.
+  let AC = null, master = null;
+  const audioOn = () => {
+    if (!AC) { try { AC = new AudioContext(); master = AC.createGain(); master.gain.value = 0.9; master.connect(AC.destination); } catch { AC = null; } }
+    if (AC && AC.state === 'suspended') AC.resume().catch(() => {});
+  };
   addEventListener('pointerdown', audioOn); addEventListener('keydown', audioOn);
   let noiseBuf = null;
-  function sfx(kind) {
+  // character voices: a pitched tone sweep (f0 -> f1 over dur), optional wobble, through the master gain
+  function tone(type, f0, f1, dur, vol, { t = 0, wob = 0, wobHz = 28, attack = 0.008 } = {}) {
+    const t0 = AC.currentTime + t, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+    if (wob) { const l = AC.createOscillator(), lg = AC.createGain(); l.frequency.value = wobHz; lg.gain.value = wob; l.connect(lg); lg.connect(o.frequency); l.start(t0); l.stop(t0 + dur + 0.02); }
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + attack); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  const VOICE = {
+    boing: (p, v) => tone('sine', 230 * p, 600 * p, 0.2, 0.16 * v, { wob: 40 * p }),                                  // jump
+    hup: (p, v) => { tone('sine', 330 * p, 520 * p, 0.09, 0.12 * v); tone('sine', 520 * p, 780 * p, 0.12, 0.12 * v, { t: 0.08 }); },   // mantle over a ledge
+    squish: (p, v) => tone('sine', 150 * p, 60 * p, 0.14, 0.22 * v),                                                    // land (plus a soft splat below)
+    pop: (p, v) => tone('sine', 1150 * p, 360 * p, 0.07, 0.14 * v, { attack: 0.003 }),                                   // grab
+    bonk: (p, v) => { tone('triangle', 560 * p, 170 * p, 0.22, 0.2 * v, { attack: 0.003 }); tone('sine', 1500 * p, 1400 * p, 0.35, 0.05 * v, { t: 0.05, wob: 60, wobHz: 9 }); },   // knocked out (+ tweeting)
+    yelp: (p, v) => tone('triangle', 820 * p, 240 * p, 0.55, 0.13 * v, { wob: 25 * p, wobHz: 14 }),                    // falling out
+  };
+  function sfx(kind, { vol = 1, pitch = 1 } = {}) {
     if (!AC || AC.state !== 'running') return;
-    const t0 = AC.currentTime, out = AC.createGain(); out.connect(AC.destination);
+    if (VOICE[kind]) { VOICE[kind](pitch, vol); if (kind === 'squish') sfx('splat', { vol: vol * 0.5 }); return; }
+    const t0 = AC.currentTime, out = AC.createGain(); out.connect(master);
     if (!noiseBuf) { noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const d = noiseBuf.getChannelData(0); let a = 7; for (let i = 0; i < d.length; i++) { a = (a * 1103515245 + 12345) >>> 0; d[i] = a / 2147483648 - 1; } }
     const noise = () => { const s = AC.createBufferSource(); s.buffer = noiseBuf; return s; };
     const env = (g, a, peak, dur) => { g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + a); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); };
@@ -17,9 +39,9 @@ export function createFX({ THREE, scene, rng, maxPuffs = 160 }) {
     const P = { crackle: ['highpass', 2500, 0.01, 0.25, 0.4], thunder: ['lowpass', 260, 0.02, 0.6, 1.8], boom: ['lowpass', 180, 0.01, 0.9, 1.2], splash: ['bandpass', 900, 0.02, 0.35, 0.6],
       rumble: ['lowpass', 90, 0.2, 0.5, 1.4], whoosh: ['bandpass', 500, 0.6, 0.18, 1.0], crash: ['lowpass', 700, 0.01, 0.5, 0.8], stomp: ['lowpass', 120, 0.005, 1.0, 0.9],
       splat: ['bandpass', 400, 0.01, 0.45, 0.35], shatter: ['highpass', 3200, 0.005, 0.35, 0.5], roll: ['lowpass', 160, 0.3, 0.35, 1.6] }[kind];
-    if (P) { const s = noise(); const f = filt(P[0], P[1]); s.connect(f); f.connect(out); env(out, P[2], P[3], P[4]); s.start(t0); s.stop(t0 + P[4]); return; }
+    if (P) { const s = noise(); const f = filt(P[0], P[1]); s.connect(f); f.connect(out); env(out, P[2], P[3] * vol, P[4]); s.start(t0); s.stop(t0 + P[4]); return; }
     const notes = { sting: [392, 311, 262], go: [523, 784], fanfare: [523, 659, 784, 1046], out: [330, 220], horn: [196, 196, 262], tick: [880] }[kind];
-    if (notes) notes.forEach((f, i) => { const o = AC.createOscillator(); const g = AC.createGain(); o.type = kind === 'horn' ? 'sawtooth' : 'triangle'; o.frequency.value = f; o.connect(g); g.connect(AC.destination);
+    if (notes) notes.forEach((f, i) => { const o = AC.createOscillator(); const g = AC.createGain(); o.type = kind === 'horn' ? 'sawtooth' : 'triangle'; o.frequency.value = f; o.connect(g); g.connect(master);
       const s = t0 + i * (kind === 'horn' ? 0.22 : 0.13); g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(kind === 'horn' ? 0.08 : 0.18, s + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, s + 0.32); o.start(s); o.stop(s + 0.34); });
   }
 
@@ -96,5 +118,5 @@ export function createFX({ THREE, scene, rng, maxPuffs = 160 }) {
     for (const r of rings) { scene.remove(r.m); r.m.geometry.dispose(); r.m.material.dispose(); } rings.length = 0;
     for (const p of PUFFS) p.s.visible = false; flash = 0;
   }
-  return { sfx, audioOn, puff, burst, ring, splash, addTimed, flashAt, bolt, circleTele, labelSprite, update, clear, get flash() { return flash; } };
+  return { sfx, audioOn, get soundOn() { return !!AC && AC.state === 'running'; }, puff, burst, ring, splash, addTimed, flashAt, bolt, circleTele, labelSprite, update, clear, get flash() { return flash; } };
 }

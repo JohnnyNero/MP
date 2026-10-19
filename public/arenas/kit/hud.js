@@ -14,6 +14,8 @@ export function createHUD({ title = 'Arena', helpHTML = '', wipeText = 'TABLETOP
   const help = el('help', 'ov', `<div class="card"><h2>${title}</h2>${helpHTML}<p><kbd>H</kbd> / <kbd>Start</kbd> close</p></div>`);
   el('hint', 'ov', 'H / Start: help');
   const fpsEl = el('fps', 'ov');
+  const sndEl = el('snd', 'ov', 'Sound is off: click or press any key');
+  const benchEl = el('bench', 'ov', '<div class="card"><h1>Deck benchmark</h1><div class="rows"></div><p class="go"></p></div>');
   const bigEl = banner.querySelector('.big'), subEl = banner.querySelector('.sub');
   let bannerUntil = 0, helpOn = false, againFn = null;
   results.querySelector('#again').addEventListener('click', () => againFn?.());
@@ -42,5 +44,18 @@ export function createHUD({ title = 'Arena', helpHTML = '', wipeText = 'TABLETOP
     toggleHelp() { helpOn = !helpOn; help.style.display = helpOn ? 'flex' : 'none'; return helpOn; },
     get helpOn() { return helpOn; },
     fps(text) { fpsEl.textContent = text; },
+    sound(on) { sndEl.style.display = on ? 'none' : 'block'; },
+    // rows: [{ arena, fps, low, worst, sim, phys, chr, res, secs, gpu }] (text only: values may come from the URL)
+    bench(rows, goText) {
+      const box = benchEl.querySelector('.rows'); box.textContent = '';
+      for (const r of rows) {
+        const d = document.createElement('div'); d.className = 'brow';
+        const h = document.createElement('b'); h.textContent = `${r.arena}: ${r.fps} fps average, ${r.low} fps in the worst 1% of frames`; d.append(h);
+        const m = document.createElement('span'); m.textContent = `worst frame ${r.worst} ms · simulation ${r.sim} ms per step (physics ${r.phys}, characters ${r.chr}) · ${r.res} · ${r.secs} s sampled`; d.append(m);
+        box.append(d);
+      }
+      const g = document.createElement('span'); g.className = 'gpu'; g.textContent = rows.length ? 'GPU: ' + rows[rows.length - 1].gpu : ''; box.append(g);
+      benchEl.querySelector('.go').textContent = goText; benchEl.style.display = 'flex';
+    },
   };
 }

@@ -104,6 +104,16 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       if (n === 'acc_blade') blade = o;
       if (options.outline && o.isSkinnedMesh && (n === 'body' || n === 'sole')) outlines.push(o);   // no outline by default
     });
+    // silhouette: the body drawn again only where something stands in front of it, so a hidden bean still shows
+    const silMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, depthFunc: THREE.GreaterDepth, toneMapped: false });
+    const sil = [];
+    model.traverse(o => { if (o.isSkinnedMesh && (o.material.name === 'body' || o.material.name === 'body_tint')) sil.push(o); });
+    for (const m of sil) {
+      const o = new THREE.SkinnedMesh(m.geometry, silMat);
+      o.bind(m.skeleton, m.bindMatrix); o.castShadow = false; o.frustumCulled = false; o.renderOrder = 9;
+      o.position.copy(m.position); o.quaternion.copy(m.quaternion); o.scale.copy(m.scale);
+      m.parent.add(o);
+    }
     for (const m of outlines) {
       const o = new THREE.SkinnedMesh(m.geometry, outlineMat);
       o.bind(m.skeleton, m.bindMatrix); o.castShadow = false; o.frustumCulled = false;
@@ -275,6 +285,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         puff(bp.x, bp.y - R.ball, bp.z, this.airMinVy < -8 ? 7 : 5, this.airMinVy < -8 ? 0.42 : 0.3);
         this.sqV += Math.min(8, -this.airMinVy * 0.5);
         if (this.airMinVy < -FALL_KO_V && this.ko <= 0) this.knockOut(1.5, 'fall');
+        emit('land', this, -this.airMinVy);
       }
       this.airMinVy = 0;
     }
@@ -502,8 +513,8 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       const jp = !!c.jump && !this.prevJump; this.prevJump = !!c.jump;
       if (jp) this.jumpBuf = 0.12; else this.jumpBuf -= dt;
       if (awake && this.jumpBuf > 0 && this.jumpCd <= 0) {
-        if (hanging) { this.releaseAll(0.35); this.launch(JUMP_V * 0.8, (this.mag ? this.dir : f).clone().multiplyScalar(WALK * 0.5)); }
-        else if (this.grounded || this.coyote > 0) this.launch(JUMP_V, this.dir.clone().multiplyScalar(this.mag * WALK), holding ? 0.75 : 1);
+        if (hanging) { this.releaseAll(0.35); this.launch(JUMP_V * 0.8, (this.mag ? this.dir : f).clone().multiplyScalar(WALK * 0.5)); emit('jump', this); }
+        else if (this.grounded || this.coyote > 0) { this.launch(JUMP_V, this.dir.clone().multiplyScalar(this.mag * WALK), holding ? 0.75 : 1); emit('jump', this); }
       }
       // --- 6. air control / swinging while hanging
       if (awake && !this.grounded && !hanging && this.mag > 0 && this.airT < 3) {

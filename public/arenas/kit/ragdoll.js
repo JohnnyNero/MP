@@ -43,13 +43,32 @@ export function createPlayers({ THREE, RAPIER, world, scene, hero, SkeletonUtils
     s.scale.set(0.9, 0.45, 1); s.renderOrder = 10; scene.add(s); return s;
   }
 
+  // state markers over the head: circling stars while knocked out, a "!" bubble while hanging off an edge
+  // (being held wobbles the name tag instead)
+  const spriteTex = (draw) => { const c = document.createElement('canvas'); c.width = c.height = 64; draw(c.getContext('2d')); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const STAR = spriteTex((g) => {
+    g.beginPath(); for (let k = 0; k < 10; k++) { const r = k % 2 ? 12 : 28, a = -Math.PI / 2 + k * Math.PI / 5; g.lineTo(32 + r * Math.cos(a), 32 + r * Math.sin(a)); } g.closePath();
+    g.fillStyle = '#ffd84a'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#6a4a10'; g.stroke();
+  });
+  const BANG = spriteTex((g) => {
+    g.beginPath(); g.arc(32, 32, 27, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 5; g.strokeStyle = '#1a1220'; g.stroke();
+    g.fillStyle = '#e8402c'; g.font = '900 44px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('!', 32, 35);
+  });
+  function markers() {
+    const stars = new THREE.Group();
+    for (let k = 0; k < 3; k++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: STAR, depthTest: false, transparent: true })); m.scale.setScalar(0.3); m.renderOrder = 11; stars.add(m); }
+    const bang = new THREE.Sprite(new THREE.SpriteMaterial({ map: BANG, depthTest: false, transparent: true })); bang.scale.setScalar(0.38); bang.renderOrder = 11;
+    stars.visible = bang.visible = false; scene.add(stars, bang);
+    return { stars, bang };
+  }
+
   class RagdollPlayer {
     constructor(slot, bean) {
       this.index = slot.index; this.color = slot.color; this.name = slot.name; this.slot = slot; this.bean = bean;
       this.input = { x: 0, y: 0, jump: false, grab: false, aim: 0 };
       this.position = new THREE.Vector3(slot.spawn.x, slot.spawn.y, slot.spawn.z); this.velocity = new THREE.Vector3();
       this.isOut = false; this.inWater = false; this.waterT = 0; this.locked = false; this.invulnerable = false; this.lastHit = null;
-      this.mass = M; this.tag = nameTag(slot);
+      this.mass = M; this.tag = nameTag(slot); this.mk = markers();
       const self = this;
       for (const q of bean.parts) q.rb.userData = { player: this, part: q.part };
       this.colliders = bean.parts.map((q) => q.col);
@@ -137,7 +156,11 @@ export function createPlayers({ THREE, RAPIER, world, scene, hero, SkeletonUtils
       if (this.isOut) return { kos: b.kos || 0, grabs: b.grabs || 0, throws: b.throws || 0, mantles: b.mantles || 0 };
       return { tilt: +pl.tiltOf(b.pelvis.rb).toFixed(2), ko: +b.ko.toFixed(2), kos: b.kos || 0, hang: !!b.hanging, holding: this.holding, heldBy: b.heldBy, grabs: b.grabs || 0, throws: b.throws || 0, mantles: b.mantles || 0, waterT: +this.waterT.toFixed(2) };
     }
-    dispose() { if (!this.isOut) { try { this.bean.kill(); } catch { /* world freed */ } } scene.remove(this.tag); this.tag.material.map.dispose(); this.tag.material.dispose(); }
+    dispose() {
+      if (!this.isOut) { try { this.bean.kill(); } catch { /* world freed */ } }
+      scene.remove(this.tag); this.tag.material.map.dispose(); this.tag.material.dispose();
+      scene.remove(this.mk.stars, this.mk.bang); for (const s of [...this.mk.stars.children, this.mk.bang]) s.material.dispose();
+    }
   }
 
   const players = pl.players.map((bean, i) => new RagdollPlayer(slots[i], bean));
@@ -153,7 +176,18 @@ export function createPlayers({ THREE, RAPIER, world, scene, hero, SkeletonUtils
     afterStep(dt, eventQueue) { pl.afterStep(dt, eventQueue); },
     render(dt) {
       pl.render(dt);
-      for (const p of players) { if (p.isOut) continue; const t = p.bean.pelvis.rb.translation(); p.tag.position.set(t.x, t.y - C.Y.pelvis + tagY, t.z); p.tag.material.opacity = p.bean.ko > 0 ? 0.65 : 1; }
+      const now = performance.now() / 1000;
+      for (const p of players) {
+        const mk = p.mk;
+        if (p.isOut) { mk.stars.visible = mk.bang.visible = false; continue; }
+        const b = p.bean, t = b.pelvis.rb.translation(), h = b.head.rb.translation();
+        p.tag.position.set(t.x, t.y - C.Y.pelvis + tagY, t.z); p.tag.material.opacity = b.ko > 0 ? 0.65 : 1;
+        p.tag.material.rotation = b.heldBy > 0 ? 0.25 * Math.sin(now * 22) : 0;                       // held: the tag shakes
+        mk.stars.visible = b.ko > 0;
+        if (mk.stars.visible) mk.stars.children.forEach((s, k) => { const a = now * 5 + k * 2.094; s.position.set(h.x + 0.3 * Math.cos(a), h.y + 0.32 + 0.05 * Math.sin(a * 2), h.z + 0.3 * Math.sin(a)); });
+        mk.bang.visible = !!b.hanging && b.ko <= 0;
+        if (mk.bang.visible) mk.bang.position.set(p.tag.position.x + 0.55, p.tag.position.y + 0.08 + 0.06 * Math.sin(now * 8), p.tag.position.z);
+      }
     },
     markDangerous: (rb, s) => pl.markDangerous(rb, s),
     focus: () => pl.getFocus(),
