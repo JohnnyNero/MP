@@ -10,6 +10,8 @@ on:
       - 'tests/**'
       - 'public/**'
       - 'index.html'
+      - 'legacy.html'
+      - 'tools/probes/**'
       - 'package.json'
       - 'package-lock.json'
       - 'tsconfig.json'
@@ -43,6 +45,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # the arenas in headless Chrome (preinstalled on the runner): four bots play 30 s in each, any page error fails
+      - name: Arena smoke test
+        run: |
+          python3 -m http.server -d dist 4180 >/dev/null 2>&1 &
+          sleep 1
+          CHROMIUM="$(command -v google-chrome || command -v chromium)" node tools/probes/smoke.mjs
       - uses: actions/configure-pages@v5
         with:
           enablement: true

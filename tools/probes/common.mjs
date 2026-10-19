@@ -4,7 +4,7 @@
 //   env: ARENAS_URL (default http://localhost:4180/arenas/), PLAYWRIGHT_MODULE (default 'playwright'),
 //        CHROMIUM (optional executable path)
 const base = process.env.ARENAS_URL || 'http://localhost:4180/arenas/';
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright-core');
 
 export async function openArena(arena, query = '', { width = 640, height = 360 } = {}) {
   const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });

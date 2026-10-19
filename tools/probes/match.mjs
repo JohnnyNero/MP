@@ -1,7 +1,7 @@
 // Match flow: start a match from the menu, play every round with bots, check scoring and page-to-page flow.
 //   node tools/probes/match.mjs
 const base = process.env.ARENAS_URL || 'http://localhost:4180/arenas/';
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright-core');
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const errors = []; page.on('pageerror', (e) => errors.push(e.message));

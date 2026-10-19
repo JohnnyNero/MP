@@ -363,9 +363,13 @@ The rules engine, hazard deck, house generator and bots carry over.
 - **Framing (Option C):** each round the cursed board pulls everyone into one short,
   destructible arena and deals a disaster from a shared deck. Survivors move up the board,
   so the board is the scoreboard and story, not a separate game. Late rounds deal two disasters.
-- **Look:** full 3D, low-poly toy style made in Blender by script. Original wind-up
-  characters (soft vinyl body, noodle arms, visor face, die badge, wind-up key); the first
-  arena is a cosy dusk old house in the Zathura/Jumanji vein.
+- **Look:** full 3D, low-poly toy style made in Blender by script. Characters are plain soft
+  "beans" in the Human: Fall Flat / Fall Guys vein (one smooth jellybean body, a lighter face
+  patch, two dot eyes, short thick arms, stubby legs, no outline). This replaced the earlier
+  wind-up toy idea. The Old House is still planned, but the kitchen, ship and station came first.
+- **Built so far (status):** arenas Sinking Ship, Giant Kitchen, Space Station (Cargo Bay);
+  disasters lightning, meteor, flood, stampede, stomp, decompression (the station's breach
+  suction); six-round matches with 3/2/1/0 points standing in for the board until it gets a look.
 - **Camera:** one shared camera at a raised three-quarter angle that frames all players,
   with a dramatic pull-back for disaster reveals. Walls between the camera and a player fade.
   No split screen.
