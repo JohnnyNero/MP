@@ -104,13 +104,15 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       if (n === 'acc_blade') blade = o;
       if (options.outline && o.isSkinnedMesh && (n === 'body' || n === 'sole')) outlines.push(o);   // no outline by default
     });
-    // silhouette: the body drawn again only where something stands in front of it, so a hidden bean still shows
-    const silMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, depthWrite: false, depthFunc: THREE.GreaterDepth, toneMapped: false });
+    // silhouette: the body drawn again only where scenery stands in front of it, so a hidden bean still shows.
+    // Draw order does the work: scenery (renderOrder 0), then the silhouette (1, passes only behind scenery depth),
+    // then the bean itself (2) on top wherever it is visible, so the silhouette never tints the bean's own parts.
+    const silMat = new THREE.MeshBasicMaterial({ color: col.clone().lerp(WHITE, 0.35), depthWrite: false, depthFunc: THREE.GreaterDepth, toneMapped: false });
     const sil = [];
-    model.traverse(o => { if (o.isSkinnedMesh && (o.material.name === 'body' || o.material.name === 'body_tint')) sil.push(o); });
+    model.traverse(o => { if (o.isMesh) o.renderOrder = 2; if (o.isSkinnedMesh && (o.material.name === 'body' || o.material.name === 'body_tint')) sil.push(o); });
     for (const m of sil) {
       const o = new THREE.SkinnedMesh(m.geometry, silMat);
-      o.bind(m.skeleton, m.bindMatrix); o.castShadow = false; o.frustumCulled = false; o.renderOrder = 9;
+      o.bind(m.skeleton, m.bindMatrix); o.castShadow = false; o.frustumCulled = false; o.renderOrder = 1;
       o.position.copy(m.position); o.quaternion.copy(m.quaternion); o.scale.copy(m.scale);
       m.parent.add(o);
     }
@@ -130,21 +132,6 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
     return { root, leanG, squashG, model, mixer, acts, anim: 'idle', headBone: bone('head'), spineBone: bone('spine'),
              armBones: [[bone('upperarm.L'), bone('forearm.L'), bone('hand.L')], [bone('upperarm.R'), bone('forearm.R'), bone('hand.R')]],
              key, keyRest: key ? key.quaternion.clone() : null, blade: HATS[i % HATS.length] === 'acc_propeller' ? blade : null };
-  }
-
-  // run-cycle stride: how far a planted foot sweeps over one cycle (measured once on the model), so the run clip plays at
-  // the cadence the ground speed needs and the feet don't skate
-  let RUN_STRIDE = null;
-  function runStride() {
-    if (RUN_STRIDE !== null) return RUN_STRIDE;
-    RUN_STRIDE = 0;
-    const clip = models.blob.animations.find(a => a.name === 'run'); if (!clip) return 0;
-    const m = SkeletonUtils.clone(models.blob.scene), mx = new THREE.AnimationMixer(m), ft = m.getObjectByName('foot.L') || m.getObjectByName('footL');
-    if (!ft) return 0;
-    mx.clipAction(clip).play(); let lo = Infinity, hi = -Infinity; const p = new THREE.Vector3();
-    for (let k = 0; k < 32; k++) { mx.setTime(clip.duration * k / 32); m.updateMatrixWorld(true); ft.getWorldPosition(p); lo = Math.min(lo, p.z); hi = Math.max(hi, p.z); }
-    RUN_STRIDE = 2 * (hi - lo) * BLOB_SCALE;           // two planted feet per cycle
-    return RUN_STRIDE;
   }
 
   // bone helpers: rotate a bone by a WORLD-space rotation, and point a bone's +Y at a world point
@@ -178,7 +165,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
   const M_TOTAL = MASS.ball + MASS.pelvis + MASS.chest + MASS.head + 2 * MASS.hand;
   const M_UPPER = M_TOTAL - MASS.ball;
   const WEIGHT = M_TOTAL * -GRAV;
-  const ARM = 0.43 * K;
+  const ARM = 0.34 * K;                               // matches the drawn arm, so hands don't sit past the mitten
   // visible bean volume in the chest frame (height above the feet, half-width; depth = 0.84 x width), so hands and their
   // reach targets stay outside the body even though the hand colliders ignore their own torso
   const BODY_PROF = [[0.16, 0.15], [0.3, 0.25], [0.5, 0.267], [0.77, 0.25], [0.96, 0.2], [1.07, 0.11], [1.1, 0]].map(([y, r]) => [y * K, r * K]);
@@ -858,9 +845,9 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       else if (air || this.hanging) this.setAnim('jump', 0.12);
       else if (speed > 0.6) this.setAnim('run', 0.12);
       else this.setAnim('idle', 0.25);
-      if (this.anim === 'run') {                 // cadence from ground speed and the clip's stride: planted feet don't skate
-        const st = runStride(), gs = Math.hypot(v.x - this.gv.x, v.z - this.gv.z);
-        this.acts.run.setEffectiveTimeScale(st > 0.05 * K ? clamp(gs * this.acts.run.getClip().duration / st, 0.5, 3.6) : clamp(0.55 + speed * 0.16, 0.6, 1.5));
+      if (this.anim === 'run') {                 // cadence follows ground speed (relative to a moving deck), kept calm
+        const gs = Math.hypot(v.x - this.gv.x, v.z - this.gv.z);
+        this.acts.run.setEffectiveTimeScale(clamp(0.55 + gs * 0.17, 0.6, 1.4));
       }
       this.mixer.update(dt);
       this.root.updateMatrixWorld(true);
@@ -876,8 +863,8 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         const L1 = this.L1, L2 = this.L2;
         const dvec = hb.clone().sub(_vS); let d = dvec.length(); if (d < 1e-4) continue;
         const dirn = dvec.divideScalar(d);
-        // noodle stretch: past full reach the arm lengthens (up to 1.5x) so the mitten stays on the physics hand
-        const st = clamp(d / (L1 + L2 - 1e-3), 1, 1.5); up.scale.set(1, st, 1); ha.scale.set(1, 1 / st, 1);
+        // a little stretch past full reach (up to 1.15x) so the mitten stays on the physics hand
+        const st = clamp(d / (L1 + L2 - 1e-3), 1, 1.15); up.scale.set(1, st, 1); ha.scale.set(1, 1 / st, 1);
         d = clamp(d / st, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
         const cosA = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
         const pole = V(0, -0.6, 0).addScaledVector(f, -0.4).addScaledVector(right, -this.hands[k].side * 0.7);
