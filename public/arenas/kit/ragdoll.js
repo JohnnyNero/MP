@@ -122,7 +122,7 @@ export function createPlayers({ THREE, RAPIER, world, scene, hero, SkeletonUtils
       if (inp) {
         const cb = O.cameraBasis(); const x = inp.x || 0, y = inp.y || 0;
         const dx = cb.rx * x + cb.fx * y, dz = cb.rz * x + cb.fz * y;
-        c = { mx: dx, my: -dz, aim: inp.aim || 0, jump: !!inp.jump, grab: !!inp.grab };
+        c = { mx: dx, my: -dz, aim: inp.aim || 0, jump: !!inp.jump, grab: !!inp.grab, grabL: inp.grabL || 0, grabR: inp.grabR || 0, limp: !!inp.limp };
       }
       b.step(dt, c);
     }

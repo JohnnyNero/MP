@@ -235,8 +235,8 @@ let hasFloorRay = null;
 const arena = {
   id: 'ship', name: 'Sinking Ship', wipeText: 'TABLETOP', loadingText: 'Rigging the ship…',
   help: `<p>Stay aboard. The ship lists and sinks; the disaster gets worse. Fall in the sea and you're out. Last ones standing win.</p>
-    <p><b>Gamepad:</b> left stick move, <kbd>A</kbd> jump, hold <kbd>RT</kbd>/<kbd>RB</kbd> grab, right stick or D-pad aim (look up + let go = throw), <kbd>Start</kbd> this help. Press any button to join.</p>
-    <p><b>Keyboard P1:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move, <kbd>Space</kbd> jump, <kbd>F</kbd> grab, <kbd>R</kbd>/<kbd>V</kbd> aim. <b>P2:</b> arrows, <kbd>/</kbd> jump, <kbd>.</kbd> grab, <kbd>L</kbd>/<kbd>,</kbd> aim (press to join).</p>
+    <p><b>Gamepad:</b> left stick move, <kbd>A</kbd> jump, hold <kbd>LT</kbd>/<kbd>RT</kbd> left/right hand (press lightly for a short reach), <kbd>RB</kbd> both hands, right stick or D-pad aim (look up + let go = throw), hold <kbd>Y</kbd> play dead, <kbd>Start</kbd> this help. Press any button to join.</p>
+    <p><b>Keyboard P1:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move, <kbd>Space</kbd> jump, <kbd>F</kbd> grab, <kbd>Q</kbd> play dead, <kbd>R</kbd>/<kbd>V</kbd> aim. <b>P2:</b> arrows, <kbd>/</kbd> jump, <kbd>.</kbd> grab, <kbd>K</kbd> play dead, <kbd>L</kbd>/<kbd>,</kbd> aim (press to join).</p>
     <p>Throw crates, barrels and each other overboard. Hanging off the side? Look up and climb back.</p>
     <p>Glowing circle = lightning (hide under the stern deck). Growing shadow = meteor. Foam wall = rogue wave (get high, or jump it). Glowing lane = barrels. Purple shadow = kraken.</p>`,
   theme: { '--bg': '#14111f', '--panel': 'rgba(24, 16, 30, 0.92)', '--accent': '#f0c66e', '--accent-ink': '#2a1a10', '--line': '#8a6a3e', '--edge': '#14111f',

@@ -214,8 +214,8 @@ function knockShelf(ctx, idx, delay = 1.5) {
 const arena = {
   id: 'kitchen', name: 'Giant Kitchen', wipeText: 'TABLETOP', loadingText: 'Warming up the kitchen…',
   help: `<p>You're toy-sized on a giant kitchen counter. Don't fall off the edge, it's a long way down. Last ones standing win.</p>
-    <p><b>Gamepad:</b> left stick move, <kbd>A</kbd> jump, hold <kbd>RT</kbd>/<kbd>RB</kbd> grab, right stick or D-pad aim (look up + let go = throw), <kbd>Start</kbd> this help. Press any button to join.</p>
-    <p><b>Keyboard P1:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move, <kbd>Space</kbd> jump, <kbd>F</kbd> grab, <kbd>R</kbd>/<kbd>V</kbd> aim. <b>P2:</b> arrows, <kbd>/</kbd> jump, <kbd>.</kbd> grab, <kbd>L</kbd>/<kbd>,</kbd> aim (press to join).</p>
+    <p><b>Gamepad:</b> left stick move, <kbd>A</kbd> jump, hold <kbd>LT</kbd>/<kbd>RT</kbd> left/right hand (press lightly for a short reach), <kbd>RB</kbd> both hands, right stick or D-pad aim (look up + let go = throw), hold <kbd>Y</kbd> play dead, <kbd>Start</kbd> this help. Press any button to join.</p>
+    <p><b>Keyboard P1:</b> <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move, <kbd>Space</kbd> jump, <kbd>F</kbd> grab, <kbd>Q</kbd> play dead, <kbd>R</kbd>/<kbd>V</kbd> aim. <b>P2:</b> arrows, <kbd>/</kbd> jump, <kbd>.</kbd> grab, <kbd>K</kbd> play dead, <kbd>L</kbd>/<kbd>,</kbd> aim (press to join).</p>
     <p>Grab fruit and throw it at people, grab people and throw them off the edge. Fell off? Grab the edge, look up and climb back.</p>
     <p>Glowing lane = fruit stampede. Growing hand shadow = giant stomp (jump the shockwave). Rising water = sink overflow (climb the board or the hob). Shadow + food = food fight.</p>`,
   theme: { '--bg': '#2a1a12', '--panel': 'rgba(58, 34, 24, 0.92)', '--accent': '#ffb547', '--accent-ink': '#3a2214', '--line': '#a8774a', '--edge': '#2a1a12',

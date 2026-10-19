@@ -3,15 +3,17 @@
 //   Any further gamepad (any button) or the P2 keyboard (arrows/Enter) claims the first CPU slot.
 //   const inp = createInput({ nSlots, allBots, onClaim });
 //   const { edges } = inp.poll();   // once per fixed step; edges: [{ pad, button }] and inp.keyEdge (Set of key codes)
-//   inp.read(i) -> { x, y, jump, grab, aim }   (y = up / away from camera, aim -1..1 = look down..up)
+//   inp.read(i) -> { x, y, jump, grab, grabL, grabR, limp, aim }   (y = up / away from camera, aim -1..1 = look down..up;
+//   grab = both hands, grabL / grabR = one hand each, 0..1 analog reach; limp = play dead while held)
 //   inp.isHuman(i)   inp.rumble(i, strength, ms)   inp.inject(i, state|null)  (tests: override slot i's controller)
 //
-// Gamepad (standard mapping): left stick move, A jump, RT or RB grab (hold), right stick Y or D-pad up/down aim, Start help.
-// Keyboard P1: WASD move, Space jump, F or Left Shift grab, R / V aim up / down.
-// Keyboard P2: arrows move, / or Right Shift (or Enter) jump, . or Right Ctrl grab, L / , aim up / down.
+// Gamepad (standard mapping): left stick move, A jump, LT / RT left / right hand (analog reach), RB or LB both hands,
+// Y play dead (hold), right stick Y or D-pad up/down aim, Start help.
+// Keyboard P1: WASD move, Space jump, F or Left Shift grab (both hands), Q play dead, R / V aim up / down.
+// Keyboard P2: arrows move, / or Right Shift (or Enter) jump, . or Right Ctrl grab, K play dead, L / , aim up / down.
 const KB = [
-  { u: 'KeyW', d: 'KeyS', l: 'KeyA', r: 'KeyD', j: ['Space'], g: ['KeyF', 'ShiftLeft'], au: 'KeyR', ad: 'KeyV' },
-  { u: 'ArrowUp', d: 'ArrowDown', l: 'ArrowLeft', r: 'ArrowRight', j: ['Slash', 'ShiftRight', 'Enter', 'NumpadEnter'], g: ['Period', 'ControlRight'], au: 'KeyL', ad: 'Comma' },
+  { u: 'KeyW', d: 'KeyS', l: 'KeyA', r: 'KeyD', j: ['Space'], g: ['KeyF', 'ShiftLeft'], dead: 'KeyQ', au: 'KeyR', ad: 'KeyV' },
+  { u: 'ArrowUp', d: 'ArrowDown', l: 'ArrowLeft', r: 'ArrowRight', j: ['Slash', 'ShiftRight', 'Enter', 'NumpadEnter'], g: ['Period', 'ControlRight'], dead: 'KeyK', au: 'KeyL', ad: 'Comma' },
 ];
 const PREVENT = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Slash'];
 const P2_JOIN = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Slash', 'Period'];
@@ -43,12 +45,12 @@ export function createInput({ nSlots = 4, allBots = false, onClaim = null } = {}
     return { edges };
   }
   function read(i) {
-    if (injected[i]) return { x: 0, y: 0, jump: false, grab: false, aim: 0, ...injected[i] };
-    const d = slotDev[i]; const o = { x: 0, y: 0, jump: false, grab: false, aim: 0 }; if (!d) return o;
+    if (injected[i]) return { x: 0, y: 0, jump: false, grab: false, grabL: 0, grabR: 0, limp: false, aim: 0, ...injected[i] };
+    const d = slotDev[i]; const o = { x: 0, y: 0, jump: false, grab: false, grabL: 0, grabR: 0, limp: false, aim: 0 }; if (!d) return o;
     if (d.kb != null) {
       const k = KB[d.kb];
       o.x += (keys.has(k.r) ? 1 : 0) - (keys.has(k.l) ? 1 : 0); o.y += (keys.has(k.u) ? 1 : 0) - (keys.has(k.d) ? 1 : 0);
-      o.jump ||= k.j.some((c) => keys.has(c)); o.grab ||= k.g.some((c) => keys.has(c));
+      o.jump ||= k.j.some((c) => keys.has(c)); o.grab ||= k.g.some((c) => keys.has(c)); o.limp ||= keys.has(k.dead);
       o.aim += (keys.has(k.au) ? 1 : 0) - (keys.has(k.ad) ? 1 : 0);
     }
     const p = d.pad != null ? pads[d.pad] : null;
@@ -56,7 +58,9 @@ export function createInput({ nSlots = 4, allBots = false, onClaim = null } = {}
       let ax = p.axes[0] || 0, ay = -(p.axes[1] || 0); const m = Math.hypot(ax, ay);
       if (m < 0.2) { ax = 0; ay = 0; } else { const k = Math.min(1, (m - 0.2) / 0.75) / m; ax *= k; ay *= k; }   // radial deadzone, rescaled
       const b = (n) => !!(p.buttons[n] && (p.buttons[n].pressed || p.buttons[n].value > 0.35));
-      o.x += ax; o.y += ay; o.jump ||= b(0); o.grab ||= b(7) || b(5);
+      const trig = (n) => Math.max(0, Math.min(1, ((p.buttons[n]?.value ?? (p.buttons[n]?.pressed ? 1 : 0)) - 0.06) / 0.88));
+      o.x += ax; o.y += ay; o.jump ||= b(0); o.grab ||= b(5) || b(4); o.limp ||= b(3);
+      o.grabL = Math.max(o.grabL, trig(6)); o.grabR = Math.max(o.grabR, trig(7));
       let aim = -dz(p.axes[3] || 0, 0.3); if (b(12)) aim = 1; if (b(13)) aim = -1;
       o.aim += aim;
     }

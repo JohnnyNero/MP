@@ -122,6 +122,21 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
              key, keyRest: key ? key.quaternion.clone() : null, blade: HATS[i % HATS.length] === 'acc_propeller' ? blade : null };
   }
 
+  // run-cycle stride: how far a planted foot sweeps over one cycle (measured once on the model), so the run clip plays at
+  // the cadence the ground speed needs and the feet don't skate
+  let RUN_STRIDE = null;
+  function runStride() {
+    if (RUN_STRIDE !== null) return RUN_STRIDE;
+    RUN_STRIDE = 0;
+    const clip = models.blob.animations.find(a => a.name === 'run'); if (!clip) return 0;
+    const m = SkeletonUtils.clone(models.blob.scene), mx = new THREE.AnimationMixer(m), ft = m.getObjectByName('foot.L') || m.getObjectByName('footL');
+    if (!ft) return 0;
+    mx.clipAction(clip).play(); let lo = Infinity, hi = -Infinity; const p = new THREE.Vector3();
+    for (let k = 0; k < 32; k++) { mx.setTime(clip.duration * k / 32); m.updateMatrixWorld(true); ft.getWorldPosition(p); lo = Math.min(lo, p.z); hi = Math.max(hi, p.z); }
+    RUN_STRIDE = 2 * (hi - lo) * BLOB_SCALE;           // two planted feet per cycle
+    return RUN_STRIDE;
+  }
+
   // bone helpers: rotate a bone by a WORLD-space rotation, and point a bone's +Y at a world point
   const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _qz = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
   const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _vS = new THREE.Vector3(), _vE = new THREE.Vector3(), _vT = new THREE.Vector3(), _vP = new THREE.Vector3();
@@ -158,7 +173,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
   // reach targets stay outside the body even though the hand colliders ignore their own torso
   const BODY_PROF = [[0.16, 0.15], [0.3, 0.25], [0.5, 0.267], [0.77, 0.25], [0.96, 0.2], [1.07, 0.11], [1.1, 0]].map(([y, r]) => [y * K, r * K]);
   const BODY_DEPTH = 0.84, HAND_GAP = 0.085 * K;
-  const WALK = 5.0;                                   // top ground speed (m/s)
+  const WALK = 4.5;                                   // top ground speed (m/s)
   const JUMP_V = Math.sqrt(2 * -GRAV * 1.6 * K);      // fixed apex
   const SENS = { head: 2, chest: 1, pelvis: 1, ball: 0.6, handL: 0, handR: 0 };   // knockdown sensitivity per part
   const KO_DV = 4.0;                                  // summed delivered velocity change (2 frames) that knocks you out
@@ -204,7 +219,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       this.head = mk('head', 0, Y.head, R.head, MASS.head, 0.3);
       // hands[0] = left (+x of the model when it faces +z), hands[1] = right
       this.hands = [1, -1].map(side => Object.assign(mk(side > 0 ? 'handL' : 'handR', side * SHOULDER_X, Y.shoulder - ARM * 0.9, R.hand, MASS.hand, 0.9),
-        { side, joint: null, kind: null, other: null, local: null, prop: null, victim: null, objMass: 0, objR: 0, t: V(), sh: V(), handle: null }));
+        { side, joint: null, kind: null, other: null, local: null, prop: null, victim: null, objMass: 0, objR: 0, t: V(), sh: V(), handle: null, want: false, ext: 1, grabT: 0, longAxis: undefined }));
       this.parts = [this.ball, this.pelvis, this.chest, this.head, ...this.hands];
       const jt = (a, b, wy) => world.createImpulseJoint(RAPIER.JointData.spherical({ x: 0, y: wy - a.y0, z: 0 }, { x: 0, y: wy - b.y0, z: 0 }), a.rb, b.rb, true);
       jt(this.pelvis, this.chest, Y.waist); jt(this.chest, this.head, Y.neck);
@@ -341,7 +356,11 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       if (this.ko > 0) { this.ko -= dt; if (this.ko <= 0) { this.ko = 0; this.wake = 0; this.invuln = 1.6; } }
       else this.wake += dt;
       this.invuln = Math.max(0, this.invuln - dt); this.grabBlock -= dt; this.jumpCd -= dt; this.noGround -= dt; this.mantleCd -= dt;
-      const awake = this.ko <= 0;
+      const limp = !!c.limp && this.ko <= 0;              // play dead: muscles off while held, wobbly get-up after
+      if (limp && !this.limp) this.releaseAll(0.3);
+      if (!limp && this.limp) this.wake = Math.min(this.wake, 0.3);
+      this.limp = limp;
+      const awake = this.ko <= 0 && !limp;
       // knocked out = limp: every part is a sphere, so a lying body would roll away like a log; roll resistance while limp
       if (!awake !== !!this.limpDamp) { this.limpDamp = !awake; for (const p of this.parts) p.rb.setAngularDamping(!awake ? 5 : (p === this.ball ? 0 : 0.6)); }
       const P = this.pelvis.rb, B = this.ball.rb, C = this.chest.rb, H = this.head.rb;
@@ -393,10 +412,10 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         const nd = V(ix / im, 0, iz / im);
         if (this.mag > 0 && nd.dot(this.dir) < -0.3) this.mag = 0;
         this.dir.copy(nd);
-        this.mag = Math.min(im, Math.max(0.35, this.mag + dt * 3.5));
+        this.mag = Math.min(im, Math.max(0.25, this.mag + dt * 2.6));
         // turn to face the way we walk (no rotational momentum: the torso is simply torqued toward this yaw)
         const ty = Math.atan2(nd.x, nd.z), dy = Math.atan2(Math.sin(ty - this.yaw), Math.cos(ty - this.yaw));
-        this.yaw += clamp(dy, -14 * dt, 14 * dt);
+        this.yaw += clamp(dy, -7.5 * dt, 7.5 * dt);
       }
       const f = this.face, right = V(Math.cos(this.yaw), 0, -Math.sin(this.yaw)).multiplyScalar(-1);   // model's right (-x when facing +z)
       if (this.grounded) this.walkPh += dt * Math.PI * 2 * (1.2 + 1.6 * Math.hypot(bv.x, bv.z) / WALK);
@@ -415,7 +434,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         sT = Math.min(1, this.wake / 1.0); sL = Math.min(1, this.wake / 2.2);
         if (this.wake < 1.5) sT = Math.max(sT, 0.35);          // get-up: enough to roll upright, still wobbly
         if (this.grounded) sL *= Math.min(1, 0.8 + 0.2 * this.landT);
-        if (!this.grounded && !holding) { if (this.airT > 3) { sT = 0; sL = 0; } else if (this.airT > 1) { sT *= 0.5; sL *= 0.3; } }
+        if (!this.grounded && !holding && !this.heldBy) { if (this.airT > 3) { sT = 0; sL = 0; } else if (this.airT > 1) { sT *= 0.5; sL *= 0.3; } }
       }
       const tiltP = tiltOf(P.rotation());
       if (awake && this.grounded && tiltP > 1.0) { this.fallenT = (this.fallenT || 0) + dt; if (this.fallenT > 0.7 && this.wake > 2) { this.wake = 0.3; this.fallenT = 0; } }
@@ -525,6 +544,18 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
           }
         }
       }
+      // --- 9. ledge scramble: both hands on the lip and walking into it -> the feet kick up the wall
+      if (awake && this.hanging && this.mag > 0.3 && this.mantleCd <= 0) {
+        const hs = this.hands.filter(h => h.joint && h.kind === 'static');
+        if (hs.length === 2) {
+          let hx = 0, hz = 0, hy = -1e9; for (const h of hs) { const t = h.rb.translation(); hx += t.x / 2; hz += t.z / 2; hy = Math.max(hy, t.y); }
+          const into = (hs[0].intoLedge || hs[1].intoLedge || V(hx - bp.x, 0, hz - bp.z)).clone().setY(0);
+          if (into.lengthSq() > 1e-6 && this.dir.dot(into.normalize()) > 0.3 && bp.y < hy) {
+            const ahead = clamp(((hx - bp.x) * into.x + (hz - bp.z) * into.z) / (0.3 * K), 0, 1), F = 0.9 * W * this.mag * ahead;
+            this.impXYZ(B, 0, F * 0.6, 0, dt); this.impXYZ(P, 0, F * 0.4, 0, dt);
+          }
+        }
+      }
     }
     stepUp(dt, bp, bv) {
       // walkable ground slightly ahead and up, with a near-vertical face just ahead: convert the blocked push into a hop
@@ -544,9 +575,13 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       const W = WEIGHT, P = this.pelvis.rb, C = this.chest.rb, B = this.ball.rb;
       const cp = toV(C.translation()), qC = toQ(C.rotation());
       const ref = toV(B.linvel());
-      const wantGrab = awake && !!c.grab && this.grabBlock <= 0;
-      if (wantGrab) this.grabT += dt;
-      else { this.grabT = 0; if (this.holdingAny()) this.releaseAll(0, true); }
+      // per hand: grab = both, grabL / grabR = one trigger each, analog (a light press reaches about half way)
+      const blocked = !awake || this.grabBlock > 0;
+      for (const h of this.hands) {
+        const g = c.grab ? 1 : (h.side > 0 ? c.grabL : c.grabR) || 0;
+        h.want = !blocked && g > 0.08; h.ext = c.grab ? 1 : 0.55 + 0.45 * Math.min(1, g);
+        if (h.want) h.grabT += dt; else { h.grabT = 0; if (h.joint) this.release(h, true); }
+      }
       const nStatic = this.hands.filter(h => h.joint && h.kind === 'static').length;
       const cpitch = Math.min(this.pitch, 0.95), carryDir = f.clone().multiplyScalar(Math.cos(cpitch)).add(V(0, Math.sin(cpitch), 0));
       for (const h of this.hands) {
@@ -564,7 +599,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
             if (this.grounded && hp.y < sh.y - 0.1 * K && this.pos().y > hp.y) { this.release(h, false); this.grabBlock = 0.3; continue; }
             const climb = clamp((this.pitch - 0.75) / 0.5, 0, 1);
             mEff = M_TOTAL; onHand = false; antiG = false; split = true;
-            aMax = 0.42 * W * (1.5 + 1.5 * climb) / mEff;
+            aMax = 0.42 * W * (1.5 + 1.5 * climb) * (this.heldBy ? 1.7 : 1) / mEff;     // someone holding us helps us up
             vCap = 1.15 * W / Math.max(1, nStatic);
             if (this.grounded) tgt = sh.clone().addScaledVector(aim, ARM * 0.9);
             else if (climb > 0) tgt = sh.clone().add(V(0, ARM * 0.25, 0)).addScaledVector(h.intoLedge || f, 0.34 * K);   // pull up, staying on the open side of the wall
@@ -578,8 +613,8 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
             tgt = sh.clone().addScaledVector(carryDir, ARM * 0.95);
             this.carry(h, sh, carryDir, dt);
           }
-        } else if (wantGrab) {
-          tgt = sh.clone().addScaledVector(aim, ARM).addScaledVector(right, -h.side * 0.08 * K * -1);
+        } else if (h.want) {
+          tgt = sh.clone().addScaledVector(aim, ARM * h.ext).addScaledVector(right, -h.side * 0.06 * K);     // a little out to this hand's side
           aMax = 140;
           // grab magnetism: ledge handles near the aim line pull the reach target onto them
           for (const Lg of LEDGES) {
@@ -594,6 +629,7 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
               tgt = hpnt.add(V(-nx * 0.03 * K, R.hand * 0.2, -nz * 0.03 * K)); h.handle = [tgt.x, tgt.y, tgt.z, nx, nz, Lg.body]; break;
             }
           }
+          if (!h.handle) { const m = this.magnet(h, hp, tgt, aim); if (m) tgt = m; }
         } else {
           let dir, reach = ARM * 0.9;
           if (!this.grounded && this.airT > 0.08 && !this.hanging) {            // flail
@@ -622,7 +658,9 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         if (!split) this.imp(P, r, dt);
         else { const k = hp.y > sh.y ? 0.8 : 0.4; this.imp(C, r.clone().multiplyScalar(k), dt); this.imp(B, r.multiplyScalar(1 - k), dt); }
         // touch -> latch
-        if (wantGrab && !h.joint && this.grabT > 0.12 && tgt.distanceTo(hp) < 0.5 * K) this.tryAttach(h);
+        // arming delay: longer after a big change of aim since the last grip, so re-grabs can't be spammed
+        const arm = 0.1 + 0.15 * clamp(Math.abs(this.pitch - (this.lastGrabPitch ?? this.pitch)) / 1.2, 0, 1);
+        if (h.want && !h.joint && h.grabT > arm && tgt.distanceTo(hp) < 0.5 * K) this.tryAttach(h);
       }
     }
     carry(h, sh, dir, dt) {
@@ -632,11 +670,55 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       const t = sh.clone().addScaledVector(dir, ARM + h.objR);
       const sc = clamp(m / M_TOTAL, 0.5, 1), fall = clamp(1.3 - op.distanceTo(hp) / (0.8 * K), 0.3, 1);
       const F = t.sub(op).multiplyScalar(36).add(bv.sub(ov).multiplyScalar(8)).multiplyScalar(m); F.y += m * -GRAV;
-      const hc = 0.4 * W * sc * fall * 2.2, hl = Math.hypot(F.x, F.z); if (hl > hc) { F.x *= hc / hl; F.z *= hc / hl; }
-      F.y = clamp(F.y, -0.5 * W * sc, 1.0 * W * sc * fall);
+      const pull = h.kind === 'bean' && this.pitch > 0.75 ? 1.7 : 1;            // looking up while holding someone hauls them up
+      const hc = 0.4 * W * sc * fall * 2.2 * pull, hl = Math.hypot(F.x, F.z); if (hl > hc) { F.x *= hc / hl; F.z *= hc / hl; }
+      F.y = clamp(F.y, -0.5 * W * sc, 1.0 * W * sc * fall * pull);
       if (h.kind === 'bean') { for (const p of h.victim.parts) this.imp(p.rb, F.clone().multiplyScalar(p.m / M_TOTAL), dt); }
-      else { this.imp(tb, F, dt); const w = tb.angvel(); tb.setAngvel({ x: w.x * 0.9, y: w.y * 0.9, z: w.z * 0.9 }, true); }
+      else { this.imp(tb, F, dt); if (!this.aimLong(h, tb, hp, dt)) { const w = tb.angvel(); tb.setAngvel({ x: w.x * 0.9, y: w.y * 0.9, z: w.z * 0.9 }, true); } }
       this.imp(h.rb, F.clone().multiplyScalar(-0.5), dt); this.imp(this.chest.rb, F.multiplyScalar(-0.5), dt);
+    }
+    // long things (poles, ladles, oars) point along the aim from the gripping hand, so turning swings them like a bat
+    aimLong(h, tb, hp, dt) {
+      if (h.longAxis === undefined) {
+        h.longAxis = null;
+        const I = tb.principalInertia(), m = tb.mass(), a = [I.x, I.y, I.z], lo = a.indexOf(Math.min(...a)), hi = Math.max(...a);
+        if (m > 0 && hi > 3 * a[lo] && Math.sqrt(12 * hi / m) > 0.6 * K) {
+          const ax = [V(1, 0, 0), V(0, 1, 0), V(0, 0, 1)][lo].applyQuaternion(toQ(tb.principalInertiaLocalFrame()));
+          const w = ax.clone().applyQuaternion(toQ(tb.rotation())), c = toV(tb.translation()).sub(hp);
+          h.longAxis = w.dot(c) < 0 ? ax.negate() : ax;      // body-local, signed so the end beyond the hand leads
+        }
+      }
+      if (!h.longAxis) return false;
+      const ax = h.longAxis.clone().applyQuaternion(toQ(tb.rotation())), goal = this.aimDir;
+      const e = ax.clone().cross(goal), s = e.length(), ang = Math.atan2(s, ax.dot(goal));
+      const w = toV(tb.angvel()), want = s > 1e-4 ? e.multiplyScalar(Math.min(12, ang * 9) / s) : V();
+      want.addScaledVector(ax, w.dot(ax) * 0.5);                   // spin about the long axis just dies down
+      w.lerp(want, Math.min(1, dt * 14)); tb.setAngvel(rapV(w), true);
+      return true;
+    }
+    // grab magnetism: probe points along the reach with growing radii and snap the target onto the nearest grabbable
+    // surface close to the aim line (props, other players; static edges only at or above the shoulder while reaching up)
+    magnet(h, hp, tgt, aim) {
+      const d = tgt.clone().sub(hp); if (d.lengthSq() < 1e-6) return null;
+      const staticOk = !this.grounded || this.pitch > 0.5;
+      const pred = col => {
+        const pi = partOf.get(col.handle); if (pi) return pi.bean !== this;
+        const pb = col.parent(); if (pb && pb.userData && pb.userData.grabbable) return true;
+        return staticOk && (!pb || pb.isFixed() || pb.isKinematic());
+      };
+      let best = null, bestScore = Infinity;
+      for (const t of [0.35, 0.7, 1]) {
+        const s = hp.clone().addScaledVector(d, t), r = R.hand + (0.06 + 0.12 * t) * K;
+        const pr = world.projectPoint(rapV(s), true, undefined, this.grp, undefined, undefined, pred); if (!pr) continue;
+        const q = toV(pr.point), dist = pr.isInside ? 0 : q.distanceTo(s); if (dist > r) continue;
+        const pb = pr.collider.parent();
+        if ((!pb || pb.isFixed() || pb.isKinematic()) && !partOf.get(pr.collider.handle) && !(pb && pb.userData && pb.userData.grabbable) && q.y < h.sh.y - 0.1 * K) continue;
+        const rel = q.clone().sub(h.sh), off = rel.clone().addScaledVector(aim, -rel.dot(aim)).length();
+        const score = off + 0.3 * dist; if (score < bestScore) { bestScore = score; best = { q, s, inside: pr.isInside }; }
+      }
+      if (!best) return null;
+      const n = (best.inside ? hp.clone() : best.s).sub(best.q); if (n.lengthSq() < 1e-8) return best.q;
+      return best.q.addScaledVector(n.normalize(), R.hand * 0.7);
     }
     tryAttach(h) {
       let hp = h.rb.translation();
@@ -663,6 +745,11 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       }, undefined, this.grp);
       if (!found) return;
       const other = found.kind === 'static' ? (found.body || anchorBody) : found.col.parent();
+      if (found.kind === 'static' && !this.grounded && !h.handle) {       // hand-over-hand: no ladder-spamming a flat wall
+        const o = this.hands.find(x => x !== h && x.joint && x.kind === 'static' && x.other === other);
+        if (o && hp.y > o.rb.translation().y + 0.15 * K) return;
+      }
+      this.lastGrabPitch = this.pitch; h.longAxis = undefined;
       const op = toV(other.translation()), oq = toQ(other.rotation());
       const lp = toV(hp).sub(op).applyQuaternion(oq.invert());
       h.joint = world.createImpulseJoint(RAPIER.JointData.spherical({ x: 0, y: 0, z: 0 }, rapV(lp)), h.rb, other, true);
@@ -756,11 +843,14 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
       const sq = clamp(this.sq, -0.25, 0.3);
       this.squashG.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
       const air = !this.grounded && this.airT > 0.1;
-      if (ko) this.setAnim('tumble', 0.1);
+      if (ko || this.limp) this.setAnim('tumble', 0.1);
       else if (air || this.hanging) this.setAnim('jump', 0.12);
       else if (speed > 0.6) this.setAnim('run', 0.12);
       else this.setAnim('idle', 0.25);
-      if (this.anim === 'run') this.acts.run.setEffectiveTimeScale(clamp(0.55 + speed * 0.16, 0.6, 1.5));
+      if (this.anim === 'run') {                 // cadence from ground speed and the clip's stride: planted feet don't skate
+        const st = runStride(), gs = Math.hypot(v.x - this.gv.x, v.z - this.gv.z);
+        this.acts.run.setEffectiveTimeScale(st > 0.05 * K ? clamp(gs * this.acts.run.getClip().duration / st, 0.5, 3.6) : clamp(0.55 + speed * 0.16, 0.6, 1.5));
+      }
       this.mixer.update(dt);
       this.root.updateMatrixWorld(true);
       // torso and head come from the bodies: world-space delta rotations on the spine and head bones
@@ -774,12 +864,20 @@ export function createPlayers({ THREE, RAPIER, SkeletonUtils, scene, world, mode
         if (!this.L1) { fo.getWorldPosition(_v1); ha.getWorldPosition(_v2); this.L1 = _vS.distanceTo(_v1); this.L2 = _v1.distanceTo(_v2) + 0.05 * K; }
         const L1 = this.L1, L2 = this.L2;
         const dvec = hb.clone().sub(_vS); let d = dvec.length(); if (d < 1e-4) continue;
-        const dirn = dvec.divideScalar(d); d = clamp(d, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+        const dirn = dvec.divideScalar(d);
+        // noodle stretch: past full reach the arm lengthens (up to 1.5x) so the mitten stays on the physics hand
+        const st = clamp(d / (L1 + L2 - 1e-3), 1, 1.5); up.scale.set(1, st, 1); ha.scale.set(1, 1 / st, 1);
+        d = clamp(d / st, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
         const cosA = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
         const pole = V(0, -0.6, 0).addScaledVector(f, -0.4).addScaledVector(right, -this.hands[k].side * 0.7);
         pole.addScaledVector(dirn, -pole.dot(dirn)); if (pole.lengthSq() < 1e-6) pole.set(0, -1, 0); pole.normalize();
-        _vE.copy(_vS).addScaledVector(dirn, cosA * L1).addScaledVector(pole, sinA * L1);
-        _vP.copy(_vS).addScaledVector(dirn, d);
+        _vE.copy(_vS).addScaledVector(dirn, cosA * L1 * st).addScaledVector(pole, sinA * L1 * st);
+        const e2 = _vE.clone();
+        if (this.outside(e2)) {                  // the elbow would sit inside the bean: swing it out around the shoulder-hand line
+          e2.sub(_vS).addScaledVector(dirn, -e2.dot(dirn));
+          if (e2.lengthSq() > 1e-8) { e2.normalize(); _vE.copy(_vS).addScaledVector(dirn, cosA * L1 * st).addScaledVector(e2, sinA * L1 * st); }
+        }
+        _vP.copy(_vS).addScaledVector(dirn, d * st);
         aimBone(up, _vE); aimBone(fo, _vP);
       }
       if (this.key) { this.keyA += dt * (ko ? 1 : 2.5 + speed * 3.5 + (air ? 6 : 0)); this.key.quaternion.copy(this.keyRest).multiply(_q1.setFromAxisAngle(ZAXIS, this.keyA)); }
